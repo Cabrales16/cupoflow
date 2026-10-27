@@ -53,6 +53,7 @@ for (const app of APPS) {
 
   // Recursos externos de la marca → assets locales
   html = html
+    .replace(/https:\/\/lh3\.googleusercontent\.com\/d\/TU_LOGO_BLANCO_DRIVE_ID/g, rel + 'assets/logo-blanco.svg')
     .replace(/https:\/\/lh3\.googleusercontent\.com\/d\/TU_LOGO_DRIVE_ID/g, rel + 'assets/logo.svg')
     .replace(/https:\/\/drive\.google\.com\/uc\?export=(?:download|view)&(?:amp;)?id=TU_LOGO_DRIVE_ID/g, rel + 'assets/logo.svg')
     .replace(/https:\/\/www\.example\.com\/favicon\.ico/g, rel + 'assets/favicon.svg');

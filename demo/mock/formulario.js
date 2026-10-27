@@ -92,7 +92,7 @@
     return '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="margin:0;background:#f4f9f9;font-family:Arial,sans-serif">' +
       '<table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:20px 8px">' +
       '<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;background:#fff;border-radius:8px;overflow:hidden">' +
-      '<tr><td style="background:#3c796c;padding:18px 28px;color:#fff"><span style="font-size:20px;font-weight:bold">demo<span style="color:#d08b43">H</span>otel</span>' +
+      '<tr><td style="background:#3c796c;padding:18px 28px;color:#fff"><span style="font-size:20px;font-weight:bold">Cupo<span style="color:#d08b43">F</span>low</span>' +
       '<span style="float:right;font-size:11px;font-weight:bold;padding-top:6px">Area de crédito y cartera</span>' +
       '<div style="height:3px;background:#d08b43;margin-top:12px"></div></td></tr>' +
       '<tr><td style="padding:32px 28px;color:#333;font-size:14px;line-height:1.6"><h2 style="margin:0 0 16px;color:#0e362f;font-size:19px">' + esc(titulo) + '</h2>' + cuerpo + '</td></tr>' +
@@ -518,9 +518,9 @@
       const x = c.getContext('2d');
       x.font = '400 56px "Century Gothic", "Trebuchet MS", Arial, sans-serif';
       x.textBaseline = 'middle'; x.fillStyle = '#ffffff';
-      x.fillText('demo', 6, 40);
-      const w1 = x.measureText('demo').width; x.fillStyle = '#d08b43'; x.fillText('H', 6 + w1, 40);
-      const w2 = x.measureText('H').width; x.fillStyle = '#ffffff'; x.fillText('otel', 6 + w1 + w2, 40);
+      x.fillText('Cupo', 6, 40);
+      const w1 = x.measureText('Cupo').width; x.fillStyle = '#d08b43'; x.fillText('F', 6 + w1, 40);
+      const w2 = x.measureText('F').width; x.fillStyle = '#ffffff'; x.fillText('low', 6 + w1 + w2, 40);
       return { ok: true, b64: c.toDataURL('image/png').split(',')[1] };
     } catch (_) { return { ok: false }; }
   };
