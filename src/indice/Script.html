@@ -1,0 +1,117 @@
+<script>
+// Manejo del Tema Claro / Oscuro (Siempre iniciar en Claro al recargar)
+const themeToggle = document.getElementById('themeToggle');
+document.documentElement.setAttribute('data-theme', 'light');
+localStorage.setItem('theme', 'light');
+
+themeToggle.addEventListener('click', () => {
+  document.documentElement.classList.add('theme-transition');
+  const currentTheme = document.documentElement.getAttribute('data-theme');
+  const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', newTheme);
+  localStorage.setItem('theme', newTheme);
+  setTimeout(() => {
+    document.documentElement.classList.remove('theme-transition');
+  }, 300);
+});
+
+
+
+// Manejo de botones de información (manuales de usuario)
+document.querySelectorAll('.info-btn').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const url = btn.getAttribute('data-url');
+    if (url) {
+      window.open(url, '_blank');
+    }
+  });
+});
+
+// Cargar URLs desde el backend
+google.script.run
+  .withSuccessHandler(urls => {
+    if (urls.formulario) {
+      document.getElementById('cardFormulario').href = urls.formulario;
+    }
+    if (urls.panel) {
+      document.getElementById('cardPanel').href = urls.panel;
+    }
+    if (urls.operaciones) {
+      document.getElementById('cardOperaciones').href = urls.operaciones;
+    }
+  })
+  .withFailureHandler(() => {
+    // Si falla, los links quedan en '#'
+  })
+  .getUrls();
+
+// Animación de fondo — cuadrícula suave con ondas fluidas
+(function() {
+  const canvas = document.getElementById('vectorCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  setTimeout(() => canvas.classList.add('fade-in'), 100);
+
+  let W = canvas.width  = window.innerWidth;
+  let H = canvas.height = window.innerHeight;
+  let t = 0;
+  const mouse = { x: null, y: null };
+
+  window.addEventListener('mousemove',  e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+  window.addEventListener('mouseleave', () => { mouse.x = null; mouse.y = null; });
+  window.addEventListener('touchmove',  e => { if (e.touches.length) { mouse.x = e.touches[0].clientX; mouse.y = e.touches[0].clientY; } }, { passive: true });
+  window.addEventListener('touchend',   () => { mouse.x = null; mouse.y = null; });
+  window.addEventListener('resize',     () => { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; });
+
+  (function render() {
+    const d = document.documentElement.getAttribute('data-theme') === 'dark';
+    ctx.fillStyle = d ? '#0b1719' : '#ffffff';
+    ctx.fillRect(0, 0, W, H);
+    t += 0.004;
+
+    // Cuadrícula base — espaciado 90px (suave, pocas líneas)
+    const G = 90;
+    ctx.lineWidth = 0.35;
+    ctx.strokeStyle = d ? 'rgba(255,255,255,0.035)' : 'rgba(70,70,70,0.025)';
+    for (let y = 0; y <= H + G; y += G) {
+      const oy = 4 * Math.sin(t + y * 0.012);
+      ctx.beginPath(); ctx.moveTo(0, y + oy); ctx.lineTo(W, y + oy); ctx.stroke();
+    }
+    for (let x = 0; x <= W + G; x += G) {
+      const ox = 4 * Math.sin(t + x * 0.012);
+      ctx.beginPath(); ctx.moveTo(x + ox, 0); ctx.lineTo(x + ox, H); ctx.stroke();
+    }
+
+    // Ondas horizontales fluidas — 12 líneas
+    const N = 12;
+    for (let i = 0; i < N; i++) {
+      const yPos  = (i / N) * H;
+      const amp   = 26 + 12 * Math.sin(t * 0.2  + i * 0.11);
+      const freq  = 0.0065 + 0.003 * Math.sin(t * 0.1 + i * 0.05);
+      const speed = t * (0.45 + 0.25 * Math.sin(i * 0.12));
+      const thick = 0.55 + 0.4 * Math.sin(t + i * 0.22);
+      const alpha = d
+        ? (0.07  + 0.045 * Math.abs(Math.sin(t * 0.3 + i * 0.15)))
+        : (0.052 + 0.035 * Math.abs(Math.sin(t * 0.3 + i * 0.15)));
+
+      ctx.beginPath();
+      ctx.lineWidth = thick;
+      ctx.strokeStyle = d ? `rgba(190, 253, 255,${alpha})` : `rgba(50,50,50,${alpha})`;
+
+      for (let x = 0; x < W; x += 4) {
+        let y = yPos + amp * Math.sin(x * freq + speed);
+        if (mouse.x !== null) {
+          const dx = x - mouse.x, dy = y - mouse.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 130) { const f = (130 - dist) / 130; y += (dy > 0 ? 1 : -1) * f * 16; }
+        }
+        x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    requestAnimationFrame(render);
+  })();
+})();
+</script>

@@ -1,0 +1,212 @@
+<script>
+/* ─────────────────────────────────────────────────────────────────────────
+   JS_IA.html — Análisis documental con Gemini IA
+   CupoFlow · Panel de Control y Administración - Solicitud de Créditos
+   ───────────────────────────────────────────────────────────────────────── */
+
+// ─── Control del panel IA ────────────────────────────────────────────────────
+
+/**
+ * Resetea el panel de IA al estado inicial (intro visible, resultados ocultos).
+ * Llamado al abrir un nuevo expediente.
+ */
+function resetIAPanel() {
+  show('iaIdle');
+  hide('iaSkeleton');
+  hide('iaResultado');
+  const badge = document.getElementById('iaSavedBadge');
+  if (badge) badge.style.display = 'none';
+  const alertaFirma = document.getElementById('iaAlertaFirma');
+  if (alertaFirma) alertaFirma.style.display = 'none';
+}
+
+// ─── Ejecutar análisis ────────────────────────────────────────────────────────
+
+/**
+ * Dispara el análisis documental con Gemini IA para el expediente actual.
+ * Navega a la pestaña IA, muestra el skeleton de procesamiento y bloquea el botón.
+ * Al recibir el resultado, llama a renderResultadoIA().
+ */
+function ejecutarIA() {
+  if (!STATE.expedienteActual) {
+    showToast('No hay ningún expediente abierto.', 'warning');
+    return;
+  }
+
+  // Navegar a la tab de IA y mostrar estado de carga
+  switchTab('ia');
+  hide('iaIdle');
+  show('iaSkeleton');
+  hide('iaResultado');
+  showLoading();
+
+  // Deshabilitar el botón de análisis mientras procesa
+  const btnIA = document.getElementById('btnAnalizarIA');
+  if (btnIA) btnIA.disabled = true;
+
+  google.script.run
+    .withSuccessHandler(resultado => {
+      hideLoading();
+      STATE.resultadoIA = resultado;
+      renderResultadoIA(resultado);
+      actualizarEstadoBotonAprobar();
+      if (resultado.errorGuardado) {
+        showToast('Error al guardar automáticamente: ' + resultado.errorGuardado, 'warning');
+      }
+      if (btnIA) btnIA.disabled = false;
+    })
+    .withFailureHandler(err => {
+      hideLoading();
+      hide('iaSkeleton');
+      show('iaIdle');
+      if (btnIA) btnIA.disabled = false;
+      const msg = err.message || '';
+      if (msg.includes('créditos') || msg.includes('prepayment') || msg.includes('agotados') || msg.includes('AI Studio')) {
+        showToast('Créditos de Gemini IA agotados (Saldo $0). Debe recargar saldo en Google AI Studio o actualizar la API Key.', 'error');
+      } else if (msg.includes('503') || msg.includes('high demand') || msg.includes('UNAVAILABLE') || msg.includes('alta demanda')) {
+        showToast('El servicio de Inteligencia Artificial está bajo alta demanda en este momento. Por favor, intente de nuevo.', 'error');
+      } else {
+        showToast('Error en el análisis IA: ' + msg, 'error');
+      }
+    })
+    .ejecutarAuditoriaIA(STATE.expedienteActual, STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '');
+}
+
+// ─── Render del resultado ────────────────────────────────────────────────────
+
+/**
+ * Muestra el resultado del análisis de Gemini en la pestaña IA.
+ * Maneja la alerta de vigencia y los campos extraídos.
+ *
+ * @param {Object} r - Resultado de Gemini: { nit, razon_social, representante_legal,
+ *                                            alerta_vigencia, observaciones_auditoria }
+ */
+function renderResultadoIA(r) {
+  if (!r) { show('iaIdle'); return; }
+
+  hide('iaSkeleton');
+  hide('iaIdle');
+
+  // Alerta de vigencia
+  const alertaBanner = document.getElementById('iaAlertaBanner');
+  if (alertaBanner) {
+    alertaBanner.style.display = r.alerta_vigencia ? '' : 'none';
+  }
+
+  // Alerta de segunda firma
+  const alertaFirma = document.getElementById('iaAlertaFirma');
+  if (alertaFirma) {
+    alertaFirma.style.display = r.requiere_segunda_firma ? '' : 'none';
+  }
+
+  // Badge de guardado previamente
+  const savedBadge = document.getElementById('iaSavedBadge');
+  if (savedBadge) {
+    savedBadge.style.display = r.esGuardado ? 'flex' : 'none';
+  }
+
+  // Ajustar estado y texto del botón de Guardar
+  const btnGuardar = document.getElementById('btnGuardarIA');
+  if (btnGuardar) {
+    if (r.esGuardado) {
+      btnGuardar.disabled = true;
+      btnGuardar.innerHTML = `
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;margin-right:4px;"><polyline points="20 6 9 17 4 12"/></svg>
+        Guardado en expediente
+      `;
+      btnGuardar.className = "btn btn-outline btn-sm";
+    } else {
+      btnGuardar.disabled = false;
+      btnGuardar.innerHTML = `
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;margin-right:4px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13"/><polyline points="7 3 7 8 15 8"/></svg>
+        Guardar en expediente
+      `;
+      btnGuardar.className = "btn btn-primary btn-sm";
+    }
+  }
+
+  // Campos extraídos por la IA
+  setText('iaNit',         (r.nit || r.nit_verificado || '—'));
+  setText('iaRazonSocial', r.razon_social            || '—');
+  setText('iaRepLegal',    r.representante_legal     || '—');
+  setHtml('iaObservaciones', formatMarkdownToHtml(r.observaciones_auditoria || '—'));
+
+
+  const vigEl = document.getElementById('iaVigencia');
+  if (vigEl) {
+    vigEl.innerHTML = r.alerta_vigencia
+      ? '<span class="badge badge-rejected">[Alerta] Documentos por vencer o vencidos</span>'
+      : '<span class="badge badge-approved">[Vigente] Documentos vigentes</span>';
+  }
+
+  show('iaResultado');
+}
+
+// ─── Guardar resultado ───────────────────────────────────────────────────────
+
+/**
+ * Persiste el resultado del análisis de IA en la hoja SOLICITUDES.
+ * Solo disponible después de ejecutar el análisis.
+ */
+function guardarResultadoIA() {
+  if (!STATE.resultadoIA || !STATE.expedienteActual) {
+    showToast('Primero ejecuta el análisis de IA para obtener un resultado.', 'warning');
+    return;
+  }
+
+  showLoading();
+
+  google.script.run
+    .withSuccessHandler(() => {
+      hideLoading();
+      showToast('Resultado de IA guardado en el expediente correctamente.', 'success');
+      // Recargar el detalle para que el cache se actualice y marque como esGuardado: true
+      if (STATE.expedienteActual) {
+        abrirExpediente(STATE.expedienteActual);
+      }
+    })
+    .withFailureHandler(err => {
+      hideLoading();
+      showToast('Error al guardar el resultado: ' + err.message, 'error');
+    })
+    .apiGuardarResultadoIA({
+      uuid: STATE.expedienteActual,
+      token: STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '',
+      ...STATE.resultadoIA
+    });
+}
+
+
+/**
+ * Copia el reporte de IA en formato original (Markdown) al portapapeles.
+ */
+function copiarReporteIA() {
+  if (!STATE.resultadoIA || !STATE.resultadoIA.observaciones_auditoria) {
+    showToast('No hay observaciones para copiar.', 'warning');
+    return;
+  }
+
+  const rawText = STATE.resultadoIA.observaciones_auditoria;
+  navigator.clipboard.writeText(rawText).then(() => {
+    showToast('¡Reporte copiado en formato Markdown!', 'success');
+    
+    // Feedback visual en el botón de copiar
+    const btn = document.getElementById('btnCopiarIA');
+    if (btn) {
+      const originalHtml = btn.innerHTML;
+      btn.innerHTML = `
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:12px;height:12px;margin-right:4px;"><polyline points="20 6 9 17 4 12"/></svg>
+        ¡Copiado!
+      `;
+      btn.disabled = true;
+      setTimeout(() => {
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
+      }, 2000);
+    }
+  }).catch(err => {
+    console.error('Error al copiar al portapapeles:', err);
+    showToast('No se pudo copiar el reporte automáticamente.', 'error');
+  });
+}
+</script>

@@ -1,0 +1,2165 @@
+<script>
+'use strict';
+
+/* ─── Estado Global ──────────────────────────────────────── */
+const APP = { token: null, nombre: '', rol: '', creditos: [], centros: [] };
+let _sidebarTimer = null;
+let _cPagina = 1, _cPorPagina = 100, _cTotal = 0;
+let _sPagina = 1, _sPorPagina = 100, _sTotal = 0;
+let _solicitudesList = [];
+let _resFiltroPeriodo = { type: 'ALL' };
+let _notifOpen = false;
+let _chartEvol = null, _chartDist = null;
+let _evolIdx = 0, _distIdx = 0;
+const CHART_EVOL_TYPES = ['line', 'bar'];
+const CHART_DIST_TYPES = ['polarArea', 'pie'];
+let recoveryStep = 1;
+
+/* ═══════════════════════════════════════════════════════════
+   BG CANVAS — cuadrícula suave con ondas fluidas
+═══════════════════════════════════════════════════════════ */
+function initBgCanvas() {
+  const canvas = document.getElementById('bgCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+
+  let W = canvas.width  = window.innerWidth;
+  let H = canvas.height = window.innerHeight;
+  let t = 0;
+  const mouse = { x: null, y: null };
+
+  window.addEventListener('mousemove',  e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+  window.addEventListener('mouseleave', () => { mouse.x = null; mouse.y = null; });
+  window.addEventListener('touchmove',  e => { if (e.touches.length) { mouse.x = e.touches[0].clientX; mouse.y = e.touches[0].clientY; } }, { passive: true });
+  window.addEventListener('touchend',   () => { mouse.x = null; mouse.y = null; });
+  window.addEventListener('resize',     () => { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; });
+
+  (function render() {
+    const d = document.body.classList.contains('dark-mode');
+    ctx.fillStyle = d ? '#0b1719' : '#ffffff';
+    ctx.fillRect(0, 0, W, H);
+    t += 0.004;
+
+    // Cuadrícula base — espaciado 90px (suave, pocas líneas)
+    const G = 90;
+    ctx.lineWidth = 0.35;
+    ctx.strokeStyle = d ? 'rgba(255,255,255,0.035)' : 'rgba(70,70,70,0.025)';
+    for (let y = 0; y <= H + G; y += G) {
+      const oy = 4 * Math.sin(t + y * 0.012);
+      ctx.beginPath(); ctx.moveTo(0, y + oy); ctx.lineTo(W, y + oy); ctx.stroke();
+    }
+    for (let x = 0; x <= W + G; x += G) {
+      const ox = 4 * Math.sin(t + x * 0.012);
+      ctx.beginPath(); ctx.moveTo(x + ox, 0); ctx.lineTo(x + ox, H); ctx.stroke();
+    }
+
+    // Ondas horizontales fluidas — 12 líneas
+    const N = 12;
+    for (let i = 0; i < N; i++) {
+      const yPos  = (i / N) * H;
+      const amp   = 26 + 12 * Math.sin(t * 0.2  + i * 0.11);
+      const freq  = 0.0065 + 0.003 * Math.sin(t * 0.1 + i * 0.05);
+      const speed = t * (0.45 + 0.25 * Math.sin(i * 0.12));
+      const thick = 0.55 + 0.4 * Math.sin(t + i * 0.22);
+      const alpha = d
+        ? (0.07  + 0.045 * Math.abs(Math.sin(t * 0.3 + i * 0.15)))
+        : (0.052 + 0.035 * Math.abs(Math.sin(t * 0.3 + i * 0.15)));
+
+      ctx.beginPath();
+      ctx.lineWidth = thick;
+      ctx.strokeStyle = d ? `rgba(190, 253, 255,${alpha})` : `rgba(50,50,50,${alpha})`;
+
+      for (let x = 0; x < W; x += 4) {
+        let y = yPos + amp * Math.sin(x * freq + speed);
+        if (mouse.x !== null) {
+          const dx = x - mouse.x, dy = y - mouse.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 130) { const f = (130 - dist) / 130; y += (dy > 0 ? 1 : -1) * f * 16; }
+        }
+        x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    requestAnimationFrame(render);
+  })();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SPA ROUTER
+═══════════════════════════════════════════════════════════ */
+const VIEW_META = {
+  dashboard     : { title: 'Dashboard',     bc: 'Dashboard' },
+  notificaciones: { title: 'Notificaciones', bc: 'Notificaciones' },
+  creditos      : { title: 'Créditos',      bc: 'Créditos' },
+  solicitudes   : { title: 'Solicitudes',   bc: 'Solicitudes' },
+};
+
+function showView(viewId) {
+  document.querySelectorAll('.view-section').forEach(s => s.classList.add('hidden'));
+  document.querySelectorAll('.sb-item[data-view]').forEach(i => i.classList.remove('active'));
+  const key = viewId.charAt(0).toUpperCase() + viewId.slice(1);
+  const section = document.getElementById('view' + key);
+  if (section) section.classList.remove('hidden');
+  const navItem = document.querySelector(`.sb-item[data-view="${viewId}"]`);
+  if (navItem) navItem.classList.add('active');
+  const meta = VIEW_META[viewId] || { title: 'Portal', bc: viewId };
+  const t = document.getElementById('pageTitle');   if (t) t.textContent = meta.title;
+  const bc = document.getElementById('bcCurrent'); if (bc) bc.textContent = meta.bc;
+
+  if (viewId === 'dashboard')      cargarDashboard();
+  if (viewId === 'notificaciones') cargarNotificaciones(true);
+  if (viewId === 'creditos')       cargarCreditos();
+  if (viewId === 'solicitudes')    cargarSolicitudesPortal();
+}
+
+function recargarVista() {
+  const active = document.querySelector('.sb-item.active[data-view]');
+  const viewId = active ? active.dataset.view : 'dashboard';
+  if (viewId === 'creditos') { cargarCreditos(true); return; }
+  if (viewId === 'dashboard') { cargarDashboard(true); return; }
+  showView(viewId);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SIDEBAR HOVER
+   ═══════════════════════════════════════════════════════════ */
+function initSidebar() {
+  const sidebar  = document.getElementById('sidebar');
+  const mainCont = document.getElementById('mainContent');
+  if (!sidebar || !mainCont) return;
+  sidebar.addEventListener('mouseenter', () => {
+    _sidebarTimer = setTimeout(() => {
+      sidebar.classList.add('expanded');
+      mainCont.classList.add('sidebar-expanded');
+    }, 140);
+  });
+  sidebar.addEventListener('mouseleave', () => {
+    clearTimeout(_sidebarTimer);
+    sidebar.classList.remove('expanded');
+    mainCont.classList.remove('sidebar-expanded');
+  });
+  sidebar.querySelectorAll('.sb-item[data-view]').forEach(item => {
+    item.addEventListener('click', () => showView(item.dataset.view));
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════
+   INIT
+   ═══════════════════════════════════════════════════════════ */
+window.addEventListener('load', () => {
+  initTheme();
+  initBgCanvas();
+
+  const pwdInput = document.getElementById('loginPassword');
+  if (pwdInput) pwdInput.addEventListener('keydown', e => { if (e.key === 'Enter') iniciarSesion(); });
+  const emailInput = document.getElementById('loginEmail');
+  if (emailInput) emailInput.addEventListener('keydown', e => { if (e.key === 'Enter' && pwdInput) pwdInput.focus(); });
+
+  // Búsqueda global — Ctrl+K
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+      e.preventDefault();
+      const s = document.getElementById('globalSearch');
+      if (s) { s.focus(); s.select(); }
+    }
+    if (e.key === 'Escape') {
+      ['modalCentro','modalConfirm'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el && !el.classList.contains('hidden')) el.classList.add('hidden');
+      });
+      cerrarDrawer();
+      if (_notifOpen) { _notifOpen = false; document.getElementById('notifDropdown').classList.add('hidden'); }
+    }
+  });
+
+  // Búsqueda global → filtra créditos si está en esa vista o cambia automáticamente
+  const gs = document.getElementById('globalSearch');
+  if (gs) gs.addEventListener('input', () => {
+    const q = gs.value.trim();
+
+    // Controlar la visibilidad de la X de limpiar y de la etiqueta Ctrl K
+    const searchClear = document.getElementById('globalSearchClear');
+    const searchKbd = document.querySelector('.ph-search-kbd');
+    if (searchClear) {
+      if (gs.value.length > 0) {
+        searchClear.style.display = 'flex';
+        if (searchKbd) searchKbd.style.display = 'none';
+      } else {
+        searchClear.style.display = 'none';
+        if (searchKbd) searchKbd.style.display = 'inline-block';
+      }
+    }
+
+    const fb = document.getElementById('filterBusqueda');
+    if (fb) { fb.value = gs.value; }
+
+    if (gs.value.length === 0) {
+      filtrarCreditos();
+    } else {
+      const active = document.querySelector('.sb-item.active[data-view]');
+      if (!active || active.dataset.view !== 'creditos') {
+        showView('creditos');
+      } else {
+        filtrarCreditos();
+      }
+    }
+  });
+
+  // Cerrar notif al click fuera
+  document.addEventListener('click', e => {
+    const btn = document.getElementById('btnNotif');
+    const dd  = document.getElementById('notifDropdown');
+    if (_notifOpen && dd && !dd.contains(e.target) && btn && !btn.contains(e.target)) {
+      _notifOpen = false;
+      dd.classList.add('hidden');
+    }
+  });
+
+  // Cerrar modales con click en overlay
+  ['modalCentro','modalConfirm'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('click', e => { if (e.target === el) el.classList.add('hidden'); });
+  });
+
+  // Prefill email Google
+  google.script.run.withSuccessHandler(email => {
+    const inp = document.getElementById('loginEmail');
+    if (email && inp && !inp.value) inp.value = email;
+  }).apiGetDefaultEmail();
+
+  // Auto-login si hay token en sesión
+  const token = sessionStorage.getItem('hd_res_token');
+  if (token) {
+    APP.token = token;
+    google.script.run
+      .withSuccessHandler(res => {
+        if (res.ok) {
+          sessionStorage.setItem('hd_res_email', res.email || '');
+          mostrarApp(res.nombre, res.rol);
+        } else {
+          sessionStorage.removeItem('hd_res_token');
+          sessionStorage.removeItem('hd_res_email');
+          APP.token = null;
+        }
+      })
+      .withFailureHandler(() => {
+        sessionStorage.removeItem('hd_res_token');
+        sessionStorage.removeItem('hd_res_email');
+        APP.token = null;
+      })
+      .apiVerificarSesion(token);
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════
+   TEMA
+═══════════════════════════════════════════════════════════ */
+function initTheme() { applyTheme(localStorage.getItem('hd_res_theme') || 'light'); }
+function applyTheme(theme) {
+  if (theme === 'dark') document.body.classList.add('dark-mode');
+  else document.body.classList.remove('dark-mode');
+  localStorage.setItem('hd_res_theme', theme);
+  // Re-renderizar gráficas si están activas
+  if (_chartEvol) setTimeout(initChartEvolucion, 50);
+  if (_chartDist) setTimeout(initChartDistribucion, 50);
+}
+function toggleTheme() { applyTheme(document.body.classList.contains('dark-mode') ? 'light' : 'dark'); }
+
+/* ═══════════════════════════════════════════════════════════
+   AUTH — LOGIN / LOGOUT
+═══════════════════════════════════════════════════════════ */
+function toggleAuthMode(mode) {
+  recoveryStep = 1;
+  const recoverCodeField = document.getElementById('recoverCodeField');
+  if (recoverCodeField) recoverCodeField.style.display = 'none';
+  const recoverEmail = document.getElementById('recoverEmail');
+  if (recoverEmail) recoverEmail.disabled = false;
+  ['recoverEmail','recoverCodigo','recoverPassword'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  const recoverBtn = document.getElementById('recoverBtn');
+  if (recoverBtn) { recoverBtn.textContent = 'Enviar código de recuperación'; recoverBtn.disabled = false; }
+  ['loginError','recoverError'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.style.display = 'none';
+  });
+  ['loginFormCard','recoverFormCard'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.style.display = 'none';
+  });
+  const targetId = mode === 'recover' ? 'recoverFormCard' : 'loginFormCard';
+  const target = document.getElementById(targetId);
+  if (target) target.style.display = 'block';
+}
+
+function togglePwd(inputId) {
+  const input = document.getElementById(inputId);
+  const btn   = input ? input.nextElementSibling : null;
+  if (!input || !btn) return;
+  const onIco  = btn.querySelector('.eye-on-ico');
+  const offIco = btn.querySelector('.eye-off-ico');
+  if (input.type === 'password') {
+    input.type = 'text';
+    if (onIco) onIco.style.display = 'none';
+    if (offIco) offIco.style.display = 'inline';
+  } else {
+    input.type = 'password';
+    if (onIco) onIco.style.display = 'inline';
+    if (offIco) offIco.style.display = 'none';
+  }
+}
+function togglePasswordVisibility(id) { togglePwd(id); }
+
+function iniciarSesion() {
+  const email = (document.getElementById('loginEmail').value || '').trim();
+  const pass  = (document.getElementById('loginPassword').value || '').trim();
+  const btn   = document.getElementById('loginBtn');
+  const err   = document.getElementById('loginError');
+  err.style.display = 'none';
+  if (!email || !pass) { err.textContent = 'Correo y contraseña son requeridos.'; err.style.display = 'block'; return; }
+  btn.disabled = true; btn.textContent = 'Verificando...';
+  google.script.run
+    .withSuccessHandler(res => {
+      btn.disabled = false; btn.textContent = 'Iniciar sesión';
+      if (res.ok) {
+        APP.token = res.token; APP.nombre = res.nombre; APP.rol = res.rol;
+        sessionStorage.setItem('hd_res_token', res.token);
+        sessionStorage.setItem('hd_res_email', res.email || email);
+        mostrarApp(res.nombre, res.rol);
+      } else { err.textContent = res.error || 'Credenciales incorrectas.'; err.style.display = 'block'; }
+    })
+    .withFailureHandler(() => { btn.disabled = false; btn.textContent = 'Iniciar sesión'; err.textContent = 'Error de conexión.'; err.style.display = 'block'; })
+    .apiLogin(email, pass);
+}
+
+function mostrarApp(nombre, rol) {
+  APP.nombre = nombre || ''; APP.rol = rol || '';
+  const screen  = document.getElementById('loginScreen');
+  screen.classList.add('fade-out');
+  setTimeout(() => { screen.style.display = 'none'; }, 400);
+  const bgEl = document.getElementById('bgCanvas');
+  if (bgEl) bgEl.style.display = 'none';
+  const content = document.getElementById('appContent');
+  content.style.display = 'flex';
+  setTimeout(() => content.classList.add('visible'), 50);
+
+  const email = sessionStorage.getItem('hd_res_email') || '';
+  const userEl = document.getElementById('sidebarUserName');
+  if (userEl) { userEl.textContent = email || nombre || 'Usuario'; userEl.title = email || nombre || 'Usuario'; }
+  const emailEl = document.getElementById('sidebarUserEmail');
+  if (emailEl) emailEl.textContent = email;
+  const avatarEl = document.getElementById('sbAvatar');
+  if (avatarEl) avatarEl.textContent = (email || nombre || 'U').charAt(0).toUpperCase();
+  const utilU = document.getElementById('utilUsuario'); if (utilU) utilU.textContent = email || nombre || '—';
+  const utilR = document.getElementById('utilRol');     if (utilR) utilR.textContent = rol || '—';
+
+  initSidebar();
+  showView('dashboard');
+  cargarCentrosFiltro();
+  cargarNotificaciones(false);
+  setTimeout(() => { _fetchSolicitudesPortal_(false); }, 300);
+}
+
+function cerrarSesion() {
+  mostrarModalConfirm('Cerrar Sesión', '¿Estás seguro de que deseas cerrar tu sesión?', () => {
+    if (APP.token) google.script.run.withSuccessHandler(() => {}).apiLogout(APP.token);
+    sessionStorage.removeItem('hd_res_token');
+    sessionStorage.removeItem('hd_res_email');
+    APP.token = null; APP.creditos = []; APP.centros = [];
+    if (_chartEvol) { _chartEvol.destroy(); _chartEvol = null; }
+    if (_chartDist) { _chartDist.destroy(); _chartDist = null; }
+    const content = document.getElementById('appContent');
+    content.classList.remove('visible');
+    setTimeout(() => {
+      content.style.display = 'none';
+      const bgEl2 = document.getElementById('bgCanvas');
+      if (bgEl2) bgEl2.style.display = 'block';
+      const screen = document.getElementById('loginScreen');
+      screen.style.display = 'flex'; screen.classList.remove('fade-out');
+      document.getElementById('loginEmail').value = '';
+      document.getElementById('loginPassword').value = '';
+      document.getElementById('loginError').style.display = 'none';
+      google.script.run.withSuccessHandler(email => {
+        const inp = document.getElementById('loginEmail');
+        if (email && inp && !inp.value) inp.value = email;
+      }).apiGetDefaultEmail();
+    }, 350);
+  });
+}
+
+/* ─── Recuperación ───────────────────────────────────────── */
+function procesarRecuperacionStep() {
+  const email = (document.getElementById('recoverEmail').value || '').trim();
+  const btn   = document.getElementById('recoverBtn');
+  const err   = document.getElementById('recoverError');
+  err.style.display = 'none';
+  if (!email) { err.textContent = 'El correo es requerido.'; err.style.display = 'block'; return; }
+  if (recoveryStep === 1) {
+    btn.disabled = true; btn.textContent = 'Enviando código...';
+    google.script.run
+      .withSuccessHandler(res => {
+        btn.disabled = false;
+        if (res.ok) {
+          recoveryStep = 2;
+          document.getElementById('recoverCodeField').style.display = 'block';
+          btn.textContent = 'Restablecer contraseña';
+          document.getElementById('recoverEmail').disabled = true;
+          showToast('Código de recuperación enviado.', 'info');
+        } else { btn.textContent = 'Enviar código de recuperación'; err.textContent = res.error || 'No se pudo enviar.'; err.style.display = 'block'; }
+      })
+      .withFailureHandler(() => { btn.disabled = false; btn.textContent = 'Enviar código de recuperación'; err.textContent = 'Error de conexión.'; err.style.display = 'block'; })
+      .apiEnviarCodigoRecuperacion(email);
+  } else {
+    const codigo = (document.getElementById('recoverCodigo').value || '').trim();
+    const npass  = (document.getElementById('recoverPassword').value || '').trim();
+    if (!codigo || codigo.length !== 6) { err.textContent = 'Ingresa el código de 6 dígitos.'; err.style.display = 'block'; return; }
+    if (!npass || npass.length < 6)     { err.textContent = 'La contraseña debe tener al menos 6 caracteres.'; err.style.display = 'block'; return; }
+    btn.disabled = true; btn.textContent = 'Restableciendo...';
+    google.script.run
+      .withSuccessHandler(res => {
+        btn.disabled = false;
+        if (res.ok) { showToast('Contraseña restablecida. Ya puedes iniciar sesión.', 'success'); toggleAuthMode('login'); }
+        else { btn.textContent = 'Restablecer contraseña'; err.textContent = res.error || 'No se pudo restablecer.'; err.style.display = 'block'; }
+      })
+      .withFailureHandler(() => { btn.disabled = false; btn.textContent = 'Restablecer contraseña'; err.textContent = 'Error de conexión.'; err.style.display = 'block'; })
+      .apiRestablecerPassword(email, codigo, npass);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   NOTIFICACIONES
+═══════════════════════════════════════════════════════════ */
+function toggleNotifPanel() {
+  _notifOpen = !_notifOpen;
+  const dd = document.getElementById('notifDropdown');
+  if (!dd) return;
+  if (_notifOpen) {
+    dd.classList.remove('hidden');
+    cargarNotificaciones(false);
+  } else {
+    dd.classList.add('hidden');
+  }
+}
+
+function getStoredReadIds() {
+  try {
+    const key = 'res_read_ids_' + (APP.userEmail || 'default');
+    const stored = localStorage.getItem(key);
+    if (stored) return JSON.parse(stored);
+  } catch (_) {}
+  return [];
+}
+
+function saveStoredReadIds(ids) {
+  try {
+    const key = 'res_read_ids_' + (APP.userEmail || 'default');
+    localStorage.setItem(key, JSON.stringify(ids || []));
+  } catch (_) {}
+}
+
+function calcularNotificacionesCliente() {
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const alertas = [];
+  const storedReadIds = getStoredReadIds();
+  const readIds = Array.from(new Set([...(APP.readIds || []), ...storedReadIds]));
+  APP.readIds = readIds;
+
+  const creditos = APP.creditos || [];
+  creditos.forEach(c => {
+    if (!c.fecha_venc_doc) return;
+    const parts = c.fecha_venc_doc.split('/');
+    const venc  = parts.length === 3
+      ? new Date(parts[2], parts[1] - 1, parts[0])
+      : new Date(c.fecha_venc_doc);
+    if (isNaN(venc.getTime())) return;
+    venc.setHours(0, 0, 0, 0);
+    const dias = Math.ceil((venc - hoy) / 86400000);
+    
+    const idItem = String(c.id || c._rowIdx || '');
+    const leida = readIds.includes(idItem);
+    
+    // Alertas activas: vencidos en los últimos 30 días o por vencer en los próximos 15 días
+    if (dias < 0 && dias >= -30)      alertas.push({ c, dias, tipo: 'vencido', leida, idItem });
+    else if (dias >= 0 && dias <= 15) alertas.push({ c, dias, tipo: 'por-vencer', leida, idItem });
+  });
+  alertas.sort((a, b) => a.dias - b.dias);
+  APP.alertas = alertas;
+  renderNotificaciones(alertas);
+}
+
+function cargarNotificaciones() {
+  if (APP.creditos && APP.creditos.length > 0) {
+    calcularNotificacionesCliente();
+  }
+}
+
+function renderNotificaciones(alertas) {
+  const unreadAlertas = alertas.filter(a => !a.leida);
+  const count = unreadAlertas.length;
+  
+  const badge   = document.getElementById('notifBadge');
+  const badgeSb = document.getElementById('badgeNotifSidebar');
+  if (badge)   { badge.textContent = count > 99 ? '99+' : count; badge.classList.toggle('hidden', count === 0); }
+  if (badgeSb) { badgeSb.textContent = count > 99 ? '99+' : count; badgeSb.style.display = count > 0 ? 'flex' : 'none'; }
+
+  // Dropdown list (máx 10 items)
+  const list = document.getElementById('notifList');
+  if (list) {
+    if (!alertas.length) {
+      list.innerHTML = '<li class="notif-empty">Sin notificaciones pendientes.</li>';
+    } else {
+      list.innerHTML = alertas.slice(0, 10).map(({ c, dias, tipo, leida, idItem }) => {
+        const icoSvg = tipo === 'vencido'
+          ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:16px;height:16px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`
+          : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:16px;height:16px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
+        const tipoLabel = tipo === 'vencido'
+          ? `Vencido hace ${Math.abs(dias)} día${Math.abs(dias) !== 1 ? 's' : ''}`
+          : `Vence en ${dias} día${dias !== 1 ? 's' : ''}`;
+        return `
+          <li class="notif-item${!leida ? ' notif-unread' : ''}" style="${leida ? 'opacity: 0.55;' : ''}" onclick="_notifOpen=false;document.getElementById('notifDropdown').classList.add('hidden');showView('notificaciones');">
+            <div class="notif-ico notif-ico-${tipo === 'vencido' ? 'danger' : 'warning'}">${icoSvg}</div>
+            <div class="notif-body">
+              <div class="notif-msg">${escH(c.razon_social || '—')}</div>
+              <div class="notif-time">${tipoLabel} · ${escH(c.centro || '—')}</div>
+            </div>
+          </li>`;
+      }).join('');
+    }
+  }
+
+  // Sección completa (vista notificaciones)
+  const seccion = document.getElementById('notifSeccionBody');
+  if (seccion) {
+    if (!alertas.length) {
+      seccion.innerHTML = `<div class="panel-card notif-empty" style="padding:48px 16px; text-align:center; color:var(--muted); font-size:13.5px; width: 100%;">
+        <div style="width:52px;height:52px;border-radius:50%;background:var(--success-bg);border:1px solid var(--success-border);display:flex;align-items:center;justify-content:center;margin:0 auto 12px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2" stroke-linecap="round" style="width:24px;height:24px;"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:4px;">Todo en orden</div>
+        <div style="font-size:13px;color:var(--muted);">No hay alertas de documentos pendientes.</div>
+      </div>`;
+    } else {
+      seccion.innerHTML = alertas.map(({ c, dias, tipo, leida, idItem }) => {
+        const clsRead = leida ? 'read' : 'unread';
+        const dotDisplay = leida ? 'display:none;' : 'display:inline-block;';
+        
+        // Chip de estado interactivo
+        const statusIndicator = leida 
+          ? `<span class="notif-status-badge" onclick="toggleReadStatusOperaciones(event, '${idItem}', this)" title="Marcar como no leída" style="font-size:11.5px; color:var(--muted); font-weight:normal; border:1px solid var(--border2); background:var(--surface2); cursor:pointer;">
+               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px; height:12px; color:var(--muted);">
+                 <polyline points="20 6 9 17 4 12"/>
+               </svg>
+               Leída
+             </span>`
+          : `<span class="notif-status-badge" onclick="toggleReadStatusOperaciones(event, '${idItem}', this)" title="Marcar como leída" style="font-size:11.5px; color:var(--gold); font-weight:700; border:1px solid rgba(206, 110, 41, 0.2); background:rgba(206, 110, 41, 0.05); cursor:pointer;">
+               <span style="width:6px; height:6px; border-radius:50%; background:var(--gold); display:inline-block; margin-right:4px;"></span>
+               Nueva
+             </span>`;
+
+        const titulo = escH(c.razon_social || '—');
+        const subtitulo = `NIT: ${escH(c.nit || '—')} · ${escH(c.centro || '—')} · <span class="badge ${tipo === 'vencido' ? 'badge-inactivo' : 'badge-porvencer'}">${tipo === 'vencido' ? 'VENCIDO' : 'POR VENCER'}</span>`;
+        const tiempo = tipo === 'vencido'
+          ? `Vencido hace ${Math.abs(dias)}d`
+          : `Vence en ${dias}d`;
+
+        return `<li class="notif-item-card ${clsRead}" onclick="abrirDrawerCredito('${c._rowIdx}')">
+          <div style="display:flex; align-items:center; gap:12px; flex:1; min-width:0;">
+            <span class="notif-dot-seccion" style="width:8px; height:8px; border-radius:50%; background:var(--gold); flex-shrink:0; ${dotDisplay}"></span>
+            <div style="flex:1; min-width:0;">
+              <div style="font-size:14px; font-weight:600; color:var(--text); margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${titulo}</div>
+              <div style="font-size:12px; color:var(--muted);">${subtitulo}</div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:12px; margin-left:16px; flex-shrink:0;">
+            ${statusIndicator}
+            <span style="font-size:11px; color:var(--muted); font-weight:500;">${tiempo}</span>
+          </div>
+        </li>`;
+      }).join('');
+    }
+  }
+}
+
+function toggleReadStatusOperaciones(event, id, btnEl) {
+  if (event) event.stopPropagation();
+  
+  id = String(id);
+  const stored = getStoredReadIds();
+  let currentRead = Array.from(new Set([...(APP.readIds || []), ...stored]));
+  const isReadNow = currentRead.includes(id);
+  
+  if (isReadNow) {
+    currentRead = currentRead.filter(x => x !== id);
+  } else {
+    currentRead.push(id);
+  }
+  
+  APP.readIds = currentRead;
+  saveStoredReadIds(currentRead);
+  
+  if (APP.alertas) {
+    APP.alertas.forEach(a => {
+      if (String(a.idItem || a.c.id || a.c._rowIdx) === id) {
+        a.leida = !isReadNow;
+      }
+    });
+  }
+  
+  renderNotificaciones(APP.alertas || []);
+  
+  google.script.run
+    .withSuccessHandler(res => {})
+    .withFailureHandler(() => {})
+    .apiMarcarNotificacionesComoLeidas(APP.token, currentRead);
+}
+
+function marcarTodasLeidas() {
+  const alertas = APP.alertas || [];
+  const todosLosIds = alertas.map(a => String(a.idItem || a.c.id || a.c._rowIdx));
+  
+  const currentRead = Array.from(new Set([...(APP.readIds || []), ...todosLosIds]));
+  APP.readIds = currentRead;
+  saveStoredReadIds(currentRead);
+
+  if (APP.alertas) {
+    APP.alertas.forEach(a => { a.leida = true; });
+  }
+  
+  renderNotificaciones(APP.alertas || []);
+  showToast('Notificaciones marcadas como leídas.', 'success');
+
+  google.script.run
+    .withSuccessHandler(res => {})
+    .withFailureHandler(() => {})
+    .apiMarcarNotificacionesComoLeidas(APP.token, currentRead);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   DASHBOARD
+═══════════════════════════════════════════════════════════ */
+function _obtenerFechasPeriodo(tipo) {
+  const hoy = new Date();
+  let inicio = '', fin = '';
+  
+  const toISO = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const r = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${r}`;
+  };
+
+  if (tipo === 'HOY') {
+    inicio = toISO(hoy);
+    fin = toISO(hoy);
+  } else if (tipo === 'ESTA_SEMANA') {
+    const temp = new Date(hoy);
+    const day = temp.getDay();
+    const diff = temp.getDate() - day + (day === 0 ? -6 : 1);
+    const lunes = new Date(temp.setDate(diff));
+    const domingo = new Date(lunes);
+    domingo.setDate(lunes.getDate() + 6);
+    inicio = toISO(lunes);
+    fin = toISO(domingo);
+  } else if (tipo === 'ESTE_MES') {
+    const primerDia = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+    const ultimoDia = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0);
+    inicio = toISO(primerDia);
+    fin = toISO(ultimoDia);
+  } else if (tipo === 'ESTE_ANIO') {
+    const primerDia = new Date(hoy.getFullYear(), 0, 1);
+    const ultimoDia = new Date(hoy.getFullYear(), 11, 31);
+    inicio = toISO(primerDia);
+    fin = toISO(ultimoDia);
+  }
+  
+  return { inicio, fin };
+}
+
+function mostrarSkeletonsDashboard() {
+  document.querySelectorAll('.kpi-card').forEach(card => {
+    const sk = card.querySelector('.sk-kpi');
+    if (sk) sk.style.display = 'block';
+    
+    const v = card.querySelector('.kpi-value');
+    if (v) v.style.display = 'none';
+    
+    const footer = card.querySelector('.kpi-footer');
+    if (footer) footer.style.display = 'none';
+    
+    const canvas = card.querySelector('.kpi-sparkline');
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+  });
+
+  const evolSk = document.getElementById('chartEvolSkeleton');
+  const evolChart = document.getElementById('chartEvolucion');
+  if (evolSk) evolSk.style.display = 'flex';
+  if (evolChart) evolChart.style.display = 'none';
+
+  const distSk = document.getElementById('chartDistSkeleton');
+  const distChart = document.getElementById('chartDistribucion');
+  if (distSk) distSk.style.display = 'block';
+  if (distChart) distChart.style.display = 'none';
+
+  const tbody = document.getElementById('dashRecentesBody');
+  if (tbody) {
+    tbody.innerHTML = [1,2,3,4].map(() => `<tr>
+      <td colspan="7"><div class="sk sk-text" style="width:100%;height:15px;margin:5px 0;"></div></td>
+    </tr>`).join('');
+  }
+}
+
+function calcularKpisCliente(fechaInicio, fechaFin) {
+  const minDate = fechaInicio ? new Date(fechaInicio + 'T00:00:00') : null;
+  const maxDate = fechaFin ? new Date(fechaFin + 'T23:59:59') : null;
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+
+  let total = 0, activos = 0, vigentes = 0, no_vigentes = 0, por_vencer = 0;
+  const nits = new Set();
+
+  const creditosFiltrados = (APP.creditos || []).filter(c => {
+    if (!c.fecha_aprobacion) return false;
+    const parts = c.fecha_aprobacion.split('/');
+    if (parts.length !== 3) return false;
+    const cDate = new Date(parts[2], parts[1] - 1, parts[0]);
+    if (minDate && cDate < minDate) return false;
+    if (maxDate && cDate > maxDate) return false;
+    return true;
+  });
+
+  creditosFiltrados.forEach(c => {
+    total++;
+    const estado   = String(c.estado_credito || '').trim().toLowerCase();
+    const vigencia = String(c.vigencia_doc || '').trim().toLowerCase();
+    const nit      = String(c.nit || '').trim();
+
+    if (estado === 'activo' || estado === 'por vencer') activos++;
+    if (vigencia === 'vigente') vigentes++;
+    if (vigencia === 'no vigente') no_vigentes++;
+    if (nit) nits.add(nit);
+
+    if (c.fecha_venc_doc) {
+      const parts = c.fecha_venc_doc.split('/');
+      const fechaVenc = new Date(parts[2], parts[1] - 1, parts[0]);
+      if (!isNaN(fechaVenc.getTime())) {
+        const dias = Math.ceil((fechaVenc.getTime() - hoy.getTime()) / 86400000);
+        if (dias >= 0 && dias <= 15) por_vencer++;
+      }
+    }
+  });
+
+  return {
+    total,
+    activos,
+    vigentes,
+    no_vigentes,
+    por_vencer,
+    empresas: nits.size,
+    creditosFiltrados
+  };
+}
+
+function cargarDashRecientesCliente(fechaInicio, fechaFin) {
+  const stats = calcularKpisCliente(fechaInicio, fechaFin);
+  const creditosFiltrados = stats.creditosFiltrados;
+  const tbody = document.getElementById('dashRecentesBody');
+
+  const evolSk = document.getElementById('chartEvolSkeleton');
+  const evolChart = document.getElementById('chartEvolucion');
+  if (evolSk) evolSk.style.display = 'none';
+  if (evolChart) evolChart.style.display = 'block';
+
+  const distSk = document.getElementById('chartDistSkeleton');
+  const distChart = document.getElementById('chartDistribucion');
+  if (distSk) distSk.style.display = 'none';
+  if (distChart) distChart.style.display = 'block';
+
+  // KPI cards
+  const total = stats.total || 1;
+  const kpis = [
+    { cls: 'kpi-activos',  val: stats.activos,     sparkId: 'sparkActivos',    color: '#1a6e3c', footerId: 'footerActivos',    pct: Math.round(stats.activos / total * 100) + '% del total', trendType: 'up' },
+    { cls: 'kpi-vigentes', val: stats.vigentes,    sparkId: 'sparkVigentes',   color: '#20daf0', footerId: 'footerVigentes',   pct: Math.round(stats.vigentes / total * 100) + '% del total', trendType: 'neutral' },
+    { cls: 'kpi-novigent', val: stats.no_vigentes,  sparkId: 'sparkNoVigentes', color: '#dc2626', footerId: 'footerNoVigentes', pct: Math.round(stats.no_vigentes / total * 100) + '% del total', trendType: 'down' },
+    { cls: 'kpi-porvenc',  val: stats.por_vencer,   sparkId: 'sparkPorVencer',  color: '#ca711f', footerId: 'footerPorVencer',  pct: Math.round(stats.por_vencer / total * 100) + '% del total', trendType: 'neutral' },
+  ];
+
+  kpis.forEach(({ cls, val, sparkId, color, footerId, pct, trendType }) => {
+    const card = document.querySelector(`.kpi-card.${cls}`);
+    if (!card) return;
+    const sk = card.querySelector('.sk-kpi');
+    if (sk) sk.style.display = 'none';
+    const v = card.querySelector('.kpi-value');
+    if (v) { v.textContent = val; v.style.display = 'block'; }
+    const footer = document.getElementById(footerId);
+    if (footer) {
+      let trendSvg = '';
+      if (trendType === 'up') {
+        trendSvg = `<span class="trend-up"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:2px;"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg> ${pct}</span> <span class="trend-sub">del total</span>`;
+      } else if (trendType === 'down') {
+        trendSvg = `<span class="trend-down"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:2px;"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg> ${pct}</span> <span class="trend-sub">del total</span>`;
+      } else {
+        trendSvg = `<span class="trend-neutral"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:2px;"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="13 6 19 12 13 18"/></svg> ${pct}</span> <span class="trend-sub">del total</span>`;
+      }
+      footer.innerHTML = trendSvg;
+      footer.style.display = 'flex';
+    }
+    drawSparkline(sparkId, val, color);
+  });
+
+  if (!creditosFiltrados.length) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><h3>Sin registros</h3><p>No hay créditos para el período seleccionado.</p></div></td></tr>`;
+    if (_chartEvol) { _chartEvol.destroy(); _chartEvol = null; }
+    if (_chartDist) { _chartDist.destroy(); _chartDist = null; }
+    return;
+  }
+
+  if (tbody) {
+    tbody.innerHTML = creditosFiltrados.slice(0, 8).map(c => `
+      <tr onclick="abrirDrawerCredito('${c._rowIdx}')">
+        <td class="col-empresa"><span class="td-razon" title="${escH(c.razon_social)}">${escH(c.razon_social)||'<span class="td-muted">—</span>'}</span><span class="td-nit">${escH(c.nit)||'—'}</span></td>
+        <td class="col-centro">${escH(c.centro)||'<span class="td-muted">—</span>'}</td>
+        <td class="col-monto td-monto">${escH(c.monto)||'<span class="td-muted">—</span>'}</td>
+        <td class="col-fecha td-mono" style="font-size:12px;">${escH(c.fecha_aprobacion)||'—'}</td>
+        <td class="col-estado">${getBadgeEstado(c.estado_credito)}</td>
+        <td class="col-vigencia">${getBadgeVigencia(c.vigencia_doc)}</td>
+        <td class="col-perfil" style="text-align:center;" onclick="event.stopPropagation();">
+          <input type="checkbox" class="perfil-creado-chk" data-rowidx="${c._rowIdx}" ${String(c.perfil_creado||'').toUpperCase()==='TRUE'?'checked':''} onchange="togglePerfilCreado(this,'${c._rowIdx}','${c.id}')">
+        </td>
+      </tr>`).join('');
+  }
+
+  renderActividadReciente(creditosFiltrados);
+
+  setTimeout(initChartEvolucion, 100);
+  setTimeout(() => initChartDistribucion(), 150);
+}
+
+function cargarDashboard(force) {
+  mostrarSkeletonsDashboard();
+  
+  const select = document.getElementById('dbPeriodo');
+  const periodo = select ? select.value : 'ALL';
+  const rango = _obtenerFechasPeriodo(periodo);
+
+  if (APP.creditos && APP.creditos.length > 0 && !force) {
+    cargarDashRecientesCliente(rango.inicio, rango.fin);
+  } else {
+    showLoading();
+    google.script.run
+      .withSuccessHandler(res => {
+        hideLoading();
+        if (res && res.ok) {
+          if (res.payload_json) {
+            const parsed = JSON.parse(res.payload_json);
+            APP.creditos = parsed.creditos || [];
+            APP.readIds = parsed.readIds || [];
+          } else {
+            APP.creditos = res.creditos || [];
+            APP.readIds = res.readIds || [];
+          }
+          calcularNotificacionesCliente();
+          cargarDashRecientesCliente(rango.inicio, rango.fin);
+          // Precarga silenciosa en segundo plano de las solicitudes
+          setTimeout(() => { _fetchSolicitudesPortal_(false); }, 200);
+        } else {
+          showToast('Error al obtener créditos: ' + ((res && res.error) || ''), 'error');
+        }
+      })
+      .withFailureHandler(err => {
+        hideLoading();
+        showToast('Error de conexión: ' + (err && err.message), 'error');
+      })
+      .apiConsultarCreditos({ token: APP.token, _force: force || false });
+  }
+}
+
+function cambiarPeriodoDashboard(val) {
+  showToast('Filtro de período aplicado: ' + val.toLowerCase().replace('_',' '), 'info');
+  cargarDashboard(true);
+}
+
+function _generateTrend(currentVal) {
+  const points = 7;
+  const data   = [];
+  let v = Math.max(currentVal * 0.5, 1);
+  for (let i = 0; i < points; i++) {
+    v = Math.max(0, v + (Math.random() - 0.4) * v * 0.3);
+    data.push(v);
+  }
+  data[points - 1] = currentVal;
+  return data;
+}
+
+function drawSparkline(canvasId, currentVal, color) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  
+  const W = 360;
+  const H = 35;
+  
+  canvas.width  = W * (window.devicePixelRatio || 1);
+  canvas.height = H * (window.devicePixelRatio || 1);
+  ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+
+  const data = _generateTrend(currentVal);
+  const min = Math.min(...data);
+  const max = Math.max(...data) || 1;
+  const padY = 2;
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.beginPath();
+  data.forEach((val, i) => {
+    const x = (i / (data.length - 1)) * W;
+    const y = H - padY - ((val - min) / (max - min || 1)) * (H - padY * 2);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.8;
+  ctx.lineJoin  = 'round';
+  ctx.lineCap   = 'round';
+  ctx.stroke();
+
+  // Relleno de gradiente
+  const fillPath = new Path2D();
+  data.forEach((val, i) => {
+    const x = (i / (data.length - 1)) * W;
+    const y = H - padY - ((val - min) / (max - min || 1)) * (H - padY * 2);
+    i === 0 ? fillPath.moveTo(x, y) : fillPath.lineTo(x, y);
+  });
+  fillPath.lineTo(W, H); 
+  fillPath.lineTo(0, H); 
+  fillPath.closePath();
+  
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, color + '22');
+  grad.addColorStop(1, color + '00');
+  ctx.fillStyle = grad;
+  ctx.fill(fillPath);
+}
+
+
+/* ─── Actividad reciente ─────────────────────────────────── */
+function renderActividadReciente(creditos) {
+  const list = document.getElementById('actividadList');
+  if (!list) return;
+  const recent = (creditos || []).slice(0, 8);
+  if (!recent.length) {
+    list.innerHTML = '<li style="padding:24px;text-align:center;color:var(--muted);font-size:13px;">Sin actividad reciente</li>';
+    return;
+  }
+  const COLORS = ['#47fafb','#22c55e','#ff6501','#a855f7','#09eeb0','#14b8a6','#f43f5e'];
+  list.innerHTML = recent.map(c => {
+    const initials = (c.razon_social || '?').substring(0, 2).toUpperCase();
+    const color    = COLORS[(c.razon_social || '').charCodeAt(0) % COLORS.length];
+    return `<li class="activity-item" onclick="abrirDrawerCredito('${c._rowIdx}')" style="cursor:pointer;">
+      <div class="act-avatar" style="background:${color}22;color:${color};border:1.5px solid ${color}44;">${initials}</div>
+      <div class="act-body">
+        <div class="act-name">${escH(c.razon_social || '—')}</div>
+        <div class="act-detail">${escH(c.centro || '—')} · ${getBadgeEstado(c.estado_credito)}</div>
+      </div>
+    </li>`;
+  }).join('');
+}
+
+/* ─── Gráfica Evolución ──────────────────────────────────── */
+function initChartEvolucion() {
+  const canvas = document.getElementById('chartEvolucion');
+  const sk     = document.getElementById('chartEvolSkeleton');
+  if (!canvas || typeof Chart === 'undefined') return;
+  if (sk) sk.style.display = 'none';
+  canvas.style.display = 'block';
+  
+  const meses  = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const hoy    = new Date();
+  const labels = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
+    labels.push(meses[d.getMonth()]);
+  }
+  
+  const base = Math.max(5, (APP.creditos || []).length);
+  const data = [
+    Math.round(base * 0.60), Math.round(base * 0.72), Math.round(base * 0.65),
+    Math.round(base * 0.85), Math.round(base * 0.78), base
+  ];
+  
+  const isDark    = document.body.classList.contains('dark-mode');
+  const gridColor = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
+  const tickColor = isDark ? 'rgba(255,255,255,0.4)'  : 'rgba(0,0,0,0.38)';
+  const ctx       = canvas.getContext('2d');
+  const isLine    = CHART_EVOL_TYPES[_evolIdx] === 'line';
+  
+  // Si es línea usamos gradiente sutil de desvanecimiento.
+  // Si es barra, usamos color sólido, plano y uniforme sin degradados verticales.
+  let chartBg;
+  if (isLine) {
+    const grad = ctx.createLinearGradient(0, 0, 0, 240);
+    grad.addColorStop(0, 'rgba(72, 123, 113, 0.22)');
+    grad.addColorStop(1, 'rgba(72, 123, 113, 0.01)');
+    chartBg = grad;
+  } else {
+    chartBg = '#487b71'; // Azul pizarra plano y opaco uniforme
+  }
+  
+  // Sombra ligera 3D para darle profundidad premium
+  const shadowPlugin = {
+    id: 'shadowPlugin',
+    beforeDatasetsDraw: (chart) => {
+      const ctxShadow = chart.ctx;
+      ctxShadow.save();
+      ctxShadow.shadowColor = isDark ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0.12)';
+      ctxShadow.shadowBlur = 8;
+      ctxShadow.shadowOffsetX = 1;
+      ctxShadow.shadowOffsetY = 4;
+    },
+    afterDatasetsDraw: (chart) => { chart.ctx.restore(); }
+  };
+
+  if (_chartEvol) _chartEvol.destroy();
+  _chartEvol = new Chart(canvas, {
+    type: CHART_EVOL_TYPES[_evolIdx],
+    data: {
+      labels,
+      datasets: [{
+        label: 'Créditos',
+        data,
+        backgroundColor: chartBg,
+        borderColor: '#487b71',
+        borderWidth: isLine ? 2.8 : 1.5,
+        borderRadius: isLine ? 0 : 5,
+        tension: 0.38,
+        fill: isLine,
+        pointRadius: 0,
+        pointHoverRadius: isLine ? 5 : 0,
+        pointBackgroundColor: '#487b71',
+        pointBorderColor: isDark ? '#123136' : '#ffffff',
+        pointBorderWidth: 1.5,
+        barPercentage: 0.4,
+        categoryPercentage: 0.8
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: isDark ? '#1c2d31' : '#fff',
+          titleColor: isDark ? '#fff' : '#2b514e',
+          bodyColor: isDark ? '#8b949e' : '#606060',
+          borderColor: isDark ? 'rgba(255,255,255,.1)' : 'rgba(59, 101, 98,.12)',
+          borderWidth: 1,
+          cornerRadius: 8,
+          titleFont: { family: 'Outfit', weight: '700' },
+          bodyFont: { family: 'Outfit' }
+        },
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { color: tickColor, font: { family: 'Outfit', size: 10.5 } }
+        },
+        y: {
+          grid: { color: gridColor },
+          ticks: { color: tickColor, font: { family: 'Outfit', size: 10.5 }, stepSize: Math.max(1, Math.round(base / 5)) },
+          beginAtZero: true
+        },
+      }
+    },
+    plugins: [shadowPlugin]
+  });
+}
+
+function cambiarTipoGraficaEvol(dir) {
+  _evolIdx = (_evolIdx + dir + CHART_EVOL_TYPES.length) % CHART_EVOL_TYPES.length;
+  initChartEvolucion();
+}
+
+/* ─── Gráfica Distribución ───────────────────────────────── */
+function initChartDistribucion() {
+  const canvas = document.getElementById('chartDistribucion');
+  const sk     = document.getElementById('chartDistSkeleton');
+  if (!canvas || typeof Chart === 'undefined') return;
+  if (sk) sk.style.display = 'none';
+  canvas.style.display = 'block';
+  
+  const creditos = APP.creditos || [];
+  const counts   = {};
+  creditos.forEach(c => {
+    const e = (c.estado_credito || 'Sin estado').trim();
+    counts[e] = (counts[e] || 0) + 1;
+  });
+  
+  const labels = Object.keys(counts).length ? Object.keys(counts) : ['Sin datos'];
+  const values = labels.map(l => counts[l] || 1);
+  
+  const isDark   = document.body.classList.contains('dark-mode');
+  const legColor = isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.48)';
+  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(59, 101, 98,0.08)';
+  const ctx      = canvas.getContext('2d');
+  const eType    = CHART_DIST_TYPES[_distIdx];
+  const isPolar  = eType === 'polarArea';
+  
+  // Sombra ligera 3D para la torta / área polar
+  const shadowPlugin = {
+    id: 'shadowPlugin',
+    beforeDatasetsDraw: (chart) => {
+      const ctxShadow = chart.ctx;
+      ctxShadow.save();
+      ctxShadow.shadowColor = isDark ? 'rgba(0, 0, 0, 0.45)' : 'rgba(0, 0, 0, 0.14)';
+      ctxShadow.shadowBlur = 10;
+      ctxShadow.shadowOffsetX = 2;
+      ctxShadow.shadowOffsetY = 5;
+    },
+    afterDatasetsDraw: (chart) => { chart.ctx.restore(); }
+  };
+
+  // Crear gradientes sofisticados por tipo de estado
+  const bgGradients = labels.map(label => {
+    const l = label.toUpperCase().trim();
+    const grad = ctx.createLinearGradient(0, 0, 0, 200);
+    if (l.includes('ACTIVO') || l.includes('APROBADA') || l.includes('VIGENTE')) {
+      grad.addColorStop(0, '#22c55e'); // verde
+      grad.addColorStop(1, '#15803d');
+    } else if (l.includes('VENCIDO') || l.includes('RECHAZADA') || l.includes('INACTIVO')) {
+      grad.addColorStop(0, '#f87171'); // rojo
+      grad.addColorStop(1, '#b91c1c');
+    } else if (l.includes('POR VENCER') || l.includes('PENDIENTE') || l.includes('REVISION')) {
+      grad.addColorStop(0, '#ff9710'); // amarillo/naranja
+      grad.addColorStop(1, '#a83c00');
+    } else {
+      // Estado desconocido / Genérico
+      grad.addColorStop(0, '#47fafb');
+      grad.addColorStop(1, '#18bedd');
+    }
+    return grad;
+  });
+
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        display: true,
+        position: 'bottom',
+        labels: {
+          font: { family: 'Outfit', size: 10.5, weight: '600' },
+          color: legColor,
+          boxWidth: 8, boxHeight: 8,
+          usePointStyle: true, pointStyle: 'circle',
+          padding: 10
+        }
+      },
+      tooltip: {
+        backgroundColor: isDark ? '#1c2d31' : '#fff',
+        titleColor: isDark ? '#fff' : '#2b514e',
+        bodyColor: isDark ? '#8b949e' : '#606060',
+        borderColor: isDark ? 'rgba(255,255,255,.1)' : 'rgba(59, 101, 98,.12)',
+        borderWidth: 1,
+        cornerRadius: 8,
+        titleFont: { family: 'Outfit', weight: '700' },
+        bodyFont: { family: 'Outfit' }
+      },
+    }
+  };
+
+  if (isPolar) {
+    const textColor = isDark ? '#e6f3f2' : '#2b514e';
+    chartOptions.scales = {
+      r: {
+        grid: { color: gridColor },
+        angleLines: { color: gridColor },
+        ticks: {
+          color: textColor,
+          font: { family: 'Outfit', size: 9, weight: '600' },
+          backdropColor: isDark ? 'rgba(28, 45, 49, 0.75)' : 'rgba(255, 255, 255, 0.75)',
+          backdropPadding: 4,
+          z: 10
+        }
+      }
+    };
+  }
+
+  if (_chartDist) _chartDist.destroy();
+  _chartDist = new Chart(canvas, {
+    type: eType,
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        backgroundColor: bgGradients,
+        borderWidth: isDark ? 2 : 1.5,
+        borderColor: isDark ? '#123136' : '#ffffff',
+      }]
+    },
+    options: chartOptions,
+    plugins: [shadowPlugin]
+  });
+}
+
+function cambiarTipoGraficaDist(dir) {
+  _distIdx = (_distIdx + dir + CHART_DIST_TYPES.length) % CHART_DIST_TYPES.length;
+  initChartDistribucion();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CRÉDITOS
+═══════════════════════════════════════════════════════════ */
+function irACreditosFiltrado(tipo, valor) {
+  if (tipo === 'ESTADO') {
+    const estSel = document.getElementById('filterEstado');
+    if (estSel) estSel.value = valor;
+    const vigSel = document.getElementById('filterVigencia');
+    if (vigSel) vigSel.value = 'TODOS';
+  } else if (tipo === 'VIGENCIA') {
+    const estSel = document.getElementById('filterEstado');
+    if (estSel) estSel.value = 'TODOS';
+    const vigSel = document.getElementById('filterVigencia');
+    if (vigSel) vigSel.value = valor;
+  }
+  showView('creditos');
+}
+
+function cargarCreditos(force) {
+  _cPagina = 1;
+  _fetchCreditosPage_(force);
+}
+
+function _fetchCreditosPage_(force) {
+  actualizarVisibilidadBotonLimpiar();
+  const tbody = document.getElementById('creditosTableBody');
+  if (tbody) tbody.innerHTML = [1,2,3,4].map(() => `<tr class="sk-row">
+    <td><div class="sk sk-text" style="width:140px;"></div></td><td><div class="sk sk-text" style="width:80px;"></div></td>
+    <td><div class="sk sk-text" style="width:80px;"></div></td><td><div class="sk sk-text" style="width:80px;"></div></td>
+    <td><div class="sk sk-text" style="width:60px;"></div></td><td><div class="sk sk-text" style="width:30px;margin:0 auto;"></div></td>
+    <td><div class="sk sk-text" style="width:70px;"></div></td><td><div class="sk sk-text" style="width:60px;"></div></td>
+    <td><div class="sk sk-text" style="width:100px;"></div></td><td><div class="sk sk-text" style="width:80px;"></div></td>
+    <td><div class="sk sk-text" style="width:80px;"></div></td></tr>`).join('');
+
+  // Resolver fechas según el período preestablecido
+  let fInicio = '';
+  let fFin = '';
+  if (_resFiltroPeriodo.type === 'CUSTOM') {
+    fInicio = document.getElementById('filterFechaInicio')?.value || '';
+    fFin = document.getElementById('filterFechaFin')?.value || '';
+  } else {
+    const resolved = resolverFechasPorPeriodo(_resFiltroPeriodo.type);
+    fInicio = resolved.inicio;
+    fFin = resolved.fin;
+  }
+
+  const payload = {
+    token      : APP.token,
+    busqueda   : (document.getElementById('filterBusqueda')?.value   || '').trim(),
+    estado     : document.getElementById('filterEstado')?.value       || 'TODOS',
+    centro      : document.getElementById('filterCentro')?.value        || 'TODOS',
+    vigencia   : document.getElementById('filterVigencia')?.value     || 'TODOS',
+    perfil     : document.getElementById('filterPerfil')?.value       || 'TODOS',
+    fechaInicio: fInicio,
+    fechaFin   : fFin,
+    pagina     : _cPagina,
+    limite     : _cPorPagina,
+  };
+  if (force) payload._force = true;
+
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res || !res.ok) {
+        showToast('Error al cargar créditos: ' + ((res && res.error) || ''), 'error');
+        if (tbody) tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state"><h3>Error</h3><p>No se pudieron cargar los datos.</p></div></td></tr>`;
+        return;
+      }
+      if (res.payload_json) {
+        const parsed = JSON.parse(res.payload_json);
+        APP.creditos = parsed.creditos || [];
+        _cTotal = parsed.total || 0;
+      } else {
+        APP.creditos = res.creditos || [];
+        _cTotal = res.total || 0;
+      }
+      renderCreditos(APP.creditos, _cTotal);
+      const lu = document.getElementById('lastUpdate');
+      if (lu) lu.textContent = new Date().toLocaleTimeString('es-CO');
+    })
+    .withFailureHandler(err => { showToast('Error de conexión: ' + (err && err.message), 'error'); })
+    .apiConsultarCreditos(payload);
+}
+
+function filtrarCreditos() { cargarCreditos(); }
+
+function actualizarVisibilidadBotonLimpiar() {
+  const btn = document.getElementById('btnLimpiarFiltros');
+  if (!btn) return;
+
+  const busqueda = (document.getElementById('filterBusqueda')?.value || '').trim();
+  const estado = document.getElementById('filterEstado')?.value || 'TODOS';
+  const centro = document.getElementById('filterCentro')?.value || 'TODOS';
+  const vigencia = document.getElementById('filterVigencia')?.value || 'TODOS';
+  const perfil = document.getElementById('filterPerfil')?.value || 'TODOS';
+  const periodo = document.getElementById('filterPeriodo')?.value || 'ALL';
+
+  const tieneFiltros =
+    (busqueda !== '') ||
+    (estado !== 'TODOS') ||
+    (centro !== 'TODOS') ||
+    (vigencia !== 'TODOS') ||
+    (perfil !== 'TODOS') ||
+    (periodo !== 'ALL');
+
+  btn.style.display = tieneFiltros ? 'inline-flex' : 'none';
+}
+
+function limpiarFiltros() {
+  ['filterBusqueda','filterFechaInicio','filterFechaFin','globalSearch'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  const searchClear = document.getElementById('globalSearchClear');
+  const searchKbd = document.querySelector('.ph-search-kbd');
+  if (searchClear) searchClear.style.display = 'none';
+  if (searchKbd) searchKbd.style.display = 'inline-block';
+
+  ['filterCentro','filterEstado','filterVigencia','filterPerfil','filterPeriodo'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = (id === 'filterPeriodo' ? 'ALL' : 'TODOS');
+  });
+  _resFiltroPeriodo = { type: 'ALL' };
+  const customDiv = document.getElementById('resCustomDates');
+  if (customDiv) customDiv.style.display = 'none';
+  cargarCreditos();
+}
+
+function cambiarPeriodoOperaciones(val) {
+  const customDiv = document.getElementById('resCustomDates');
+  if (val === 'CUSTOM') {
+    if (customDiv) customDiv.style.display = 'inline-flex';
+  } else {
+    if (customDiv) customDiv.style.display = 'none';
+    const elInicio = document.getElementById('filterFechaInicio');
+    const elFin = document.getElementById('filterFechaFin');
+    if (elInicio) elInicio.value = '';
+    if (elFin) elFin.value = '';
+    _resFiltroPeriodo = { type: val };
+    cargarCreditos();
+  }
+}
+
+function resolverFechasPorPeriodo(val) {
+  const ahora = new Date();
+  let inicio = '';
+  let fin = '';
+
+  if (val === 'HOY') {
+    const yyyy = ahora.getFullYear();
+    const mm = String(ahora.getMonth() + 1).padStart(2, '0');
+    const dd = String(ahora.getDate()).padStart(2, '0');
+    inicio = `${yyyy}-${mm}-${dd}`;
+    fin = `${yyyy}-${mm}-${dd}`;
+  } else if (val === 'ESTA_SEMANA') {
+    const day = ahora.getDay();
+    const diff = ahora.getDate() - day + (day === 0 ? -6 : 1); // lunes
+    const lunes = new Date(ahora.setDate(diff));
+    const domingo = new Date(lunes);
+    domingo.setDate(lunes.getDate() + 6);
+    
+    const y1 = lunes.getFullYear();
+    const m1 = String(lunes.getMonth() + 1).padStart(2, '0');
+    const d1 = String(lunes.getDate()).padStart(2, '0');
+    inicio = `${y1}-${m1}-${d1}`;
+    
+    const y2 = domingo.getFullYear();
+    const m2 = String(domingo.getMonth() + 1).padStart(2, '0');
+    const d2 = String(domingo.getDate()).padStart(2, '0');
+    fin = `${y2}-${m2}-${d2}`;
+  } else if (val === 'ESTE_MES') {
+    const y = ahora.getFullYear();
+    const m = ahora.getMonth();
+    
+    const primerDia = new Date(y, m, 1);
+    const ultimoDia = new Date(y, m + 1, 0);
+    
+    const y1 = primerDia.getFullYear();
+    const m1 = String(primerDia.getMonth() + 1).padStart(2, '0');
+    const d1 = String(primerDia.getDate()).padStart(2, '0');
+    inicio = `${y1}-${m1}-${d1}`;
+    
+    const y2 = ultimoDia.getFullYear();
+    const m2 = String(ultimoDia.getMonth() + 1).padStart(2, '0');
+    const d2 = String(ultimoDia.getDate()).padStart(2, '0');
+    fin = `${y2}-${m2}-${d2}`;
+  } else if (val === 'ESTE_ANO') {
+    const y = ahora.getFullYear();
+    inicio = `${y}-01-01`;
+    fin = `${y}-12-31`;
+  }
+  
+  return { inicio, fin };
+}
+
+// Cerrar dropdown al hacer click fuera
+document.addEventListener('click', () => {
+  const dropdown = document.getElementById('crudExportDropdown');
+  if (dropdown) dropdown.classList.remove('show');
+});
+
+function toggleExportCreditosDropdown(event) {
+  if (event) event.stopPropagation();
+  const dropdown = document.getElementById('crudExportDropdown');
+  if (dropdown) dropdown.classList.toggle('show');
+}
+
+function exportarExcelOperaciones(event) {
+  if (event) event.preventDefault();
+  const dropdown = document.getElementById('crudExportDropdown');
+  if (dropdown) dropdown.classList.remove('show');
+
+  // Obtener filtros actuales
+  let fInicio = '';
+  let fFin = '';
+  if (_resFiltroPeriodo.type === 'CUSTOM') {
+    fInicio = document.getElementById('filterFechaInicio')?.value || '';
+    fFin = document.getElementById('filterFechaFin')?.value || '';
+  } else {
+    const resolved = resolverFechasPorPeriodo(_resFiltroPeriodo.type);
+    fInicio = resolved.inicio;
+    fFin = resolved.fin;
+  }
+
+  const filtros = {
+    busqueda   : (document.getElementById('filterBusqueda')?.value   || '').trim(),
+    estado     : document.getElementById('filterEstado')?.value       || 'TODOS',
+    centro      : document.getElementById('filterCentro')?.value        || 'TODOS',
+    vigencia   : document.getElementById('filterVigencia')?.value     || 'TODOS',
+    perfil     : document.getElementById('filterPerfil')?.value       || 'TODOS',
+    fechaInicio: fInicio,
+    fechaFin   : fFin,
+  };
+
+  showLoading();
+  google.script.run
+    .withSuccessHandler(res => {
+      hideLoading();
+      if (res && res.ok && res.url) {
+        window.open(res.url, '_blank');
+        showToast('Base de créditos en Excel generada y descargada correctamente', 'success');
+      } else {
+        showToast('Error al exportar créditos a Excel: ' + ((res && res.error) || ''), 'error');
+      }
+    })
+    .withFailureHandler(err => {
+      hideLoading();
+      showToast('Error al exportar créditos: ' + err.message, 'error');
+    })
+    .apiExportarCreditosExcelOperaciones(APP.token, filtros);
+}
+
+function exportarCSVOperaciones(event) {
+  if (event) event.preventDefault();
+  const dropdown = document.getElementById('crudExportDropdown');
+  if (dropdown) dropdown.classList.remove('show');
+  exportarCSV();
+}
+
+function renderCreditos(creditos, total) {
+  const tbody   = document.getElementById('creditosTableBody');
+  const countEl = document.getElementById('countText');
+  total = total !== undefined ? total : _cTotal;
+  if (countEl) countEl.innerHTML = `<strong>${total}</strong> registro${total !== 1 ? 's' : ''}`;
+  if (!creditos || !creditos.length) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state"><h3>Sin resultados</h3><p>No se encontraron créditos con los filtros aplicados.</p></div></td></tr>`;
+    const pag = document.getElementById('pagCreditos'); if (pag) pag.innerHTML = '';
+    return;
+  }
+  if (tbody) tbody.innerHTML = creditos.map(c => `
+    <tr onclick="abrirDrawerCredito('${c._rowIdx}')">
+      <td class="col-empresa"><span class="td-razon" title="${escH(c.razon_social)}">${escH(c.razon_social)||'<span class="td-muted">—</span>'}</span><span class="td-nit">${escH(c.nit)||'—'}</span></td>
+      <td class="col-centro">${escH(c.centro)||'<span class="td-muted">—</span>'}</td>
+      <td class="col-monto td-monto">${escH(c.monto)||'<span class="td-muted">—</span>'}</td>
+      <td class="col-fecha td-mono" style="font-size:12px;">${escH(c.fecha_aprobacion)||'—'}</td>
+      <td class="col-vigencia">${getBadgeVigencia(c.vigencia_doc)}</td>
+      <td class="col-perfil" style="text-align:center;" onclick="event.stopPropagation();">
+        <input type="checkbox" class="perfil-creado-chk" data-rowidx="${c._rowIdx}" ${String(c.perfil_creado||'').toUpperCase()==='TRUE'?'checked':''} onchange="togglePerfilCreado(this,'${c._rowIdx}','${c.id}')">
+      </td>
+      <td class="col-fecha td-mono" style="font-size:12px;">${escH(c.fecha_venc_doc)||'—'}</td>
+      <td class="col-estado">${getBadgeEstado(c.estado_credito)}</td>
+      <td class="col-factura" style="font-size:12px;" title="${escH(c.facturacion_electronica)}">${escH(c.facturacion_electronica)||'<span class="td-muted">—</span>'}</td>
+      <td class="col-aprobador" style="font-size:12px;color:var(--muted);">${escH(c.aprobado_por)||'—'}</td>
+      <td class="col-novedades" style="font-size:12px;color:var(--muted);" title="${escH(c.novedades)}">${escH(c.novedades)||'<span class="td-muted">—</span>'}</td>
+    </tr>`).join('');
+  renderBarraPaginacion('pagCreditos', total, _cPagina, _cPorPagina, 'irPaginaCreditos', 'cambiarSizeCreditos');
+}
+
+function irPaginaCreditos(pagina)  { _cPagina = pagina; _fetchCreditosPage_(false); }
+function cambiarSizeCreditos(size) { _cPorPagina = size; _cPagina = 1; _fetchCreditosPage_(false); }
+
+/* ─── Paginación ─────────────────────────────────────────── */
+function renderBarraPaginacion(containerId, total, pagina, porPagina, fnPage, fnSize) {
+  const el = document.getElementById(containerId); if (!el) return;
+  if (!total) { el.innerHTML = ''; return; }
+  const totalPags = Math.ceil(total / porPagina);
+  const desde = (pagina - 1) * porPagina + 1;
+  const hasta  = Math.min(pagina * porPagina, total);
+  const WIN = 2, start = Math.max(1, pagina - WIN), end = Math.min(totalPags, pagina + WIN);
+  let pagesHtml = '';
+  if (start > 1) { pagesHtml += `<button class="pg-btn" onclick="${fnPage}(1)">1</button>`; if (start > 2) pagesHtml += '<span style="padding:0 3px;color:var(--muted)">…</span>'; }
+  for (let i = start; i <= end; i++) pagesHtml += `<button class="pg-btn${i===pagina?' active':''}" onclick="${fnPage}(${i})">${i}</button>`;
+  if (end < totalPags) { if (end < totalPags - 1) pagesHtml += '<span style="padding:0 3px;color:var(--muted)">…</span>'; pagesHtml += `<button class="pg-btn" onclick="${fnPage}(${totalPags})">${totalPags}</button>`; }
+  const sizeBtns = [25,50,100].map(n => `<button class="pg-btn${n===porPagina?' active':''}" onclick="${fnSize}(${n})">${n}</button>`).join('');
+  el.innerHTML = `<div class="pag-bar"><span>Mostrando ${desde}–${hasta} de ${total}</span><div class="pag-controls"><button class="pg-btn" onclick="${fnPage}(${pagina-1})"${pagina===1?' disabled':''}>‹</button>${pagesHtml}<button class="pg-btn" onclick="${fnPage}(${pagina+1})"${pagina===totalPags?' disabled':''}>›</button></div><div class="pag-size">Por página:&nbsp;${sizeBtns}</div></div>`;
+}
+
+/* ─── Filtros avanzados toggle ───────────────────────────── */
+function toggleFiltrosAvanzadosOperaciones() {
+  const panel = document.getElementById('panelFiltrosAvanzadosOperaciones');
+  const btn   = document.getElementById('btnToggleFiltrosOperaciones');
+  if (!panel || !btn) return;
+  const collapsed = panel.classList.toggle('collapsed');
+  btn.classList.toggle('active', !collapsed);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   DRAWER — Detalle Crédito (panel lateral)
+═══════════════════════════════════════════════════════════ */
+function abrirDrawerCredito(cOrRowIdx) {
+  let c = cOrRowIdx;
+  if (typeof cOrRowIdx === 'string') {
+    const found = (APP.creditos || []).find(x => x._rowIdx === cOrRowIdx);
+    if (found) c = found;
+    else { try { c = JSON.parse(decodeURIComponent(cOrRowIdx)); } catch(e) { return; } }
+  }
+  if (!c || typeof c !== 'object') return;
+
+  const titleEl = document.getElementById('drawerTitle');
+  const subEl   = document.getElementById('drawerSub');
+  if (titleEl) titleEl.textContent = c.razon_social || 'Detalle de crédito';
+  if (subEl)   subEl.textContent   = `NIT: ${c.nit || '—'}  ·  Centro: ${c.centro || '—'}`;
+
+  const body = document.getElementById('drawerBody');
+  if (body) body.innerHTML = `
+    <div class="info-section-title">Información del crédito</div>
+    <div class="info-grid">
+      <div class="info-item"><div class="info-label">Razón Social</div><div class="info-value">${escH(c.razon_social)||'—'}</div></div>
+      <div class="info-item"><div class="info-label">NIT</div><div class="info-value mono">${escH(c.nit)||'—'}</div></div>
+      <div class="info-item"><div class="info-label">Centro</div><div class="info-value">${escH(c.centro)||'—'}</div></div>
+      <div class="info-item"><div class="info-label">Monto crédito</div><div class="info-value" style="color:var(--navy2);font-family:var(--font-mono);">${escH(c.monto)||'—'}</div></div>
+      <div class="info-item"><div class="info-label">Fecha aprobación</div><div class="info-value mono">${escH(c.fecha_aprobacion)||'—'}</div></div>
+      <div class="info-item"><div class="info-label">Aprobado por</div><div class="info-value">${escH(c.aprobado_por)||'—'}</div></div>
+      <div class="info-item"><div class="info-label">Estado crédito</div><div class="info-value">${getBadgeEstado(c.estado_credito)}</div></div>
+      <div class="info-item"><div class="info-label">Solicitado por</div><div class="info-value">${escH(c.solicitado_por)||'—'}</div></div>
+    </div>
+    <div class="info-section-title">Documentación</div>
+    <div class="info-grid">
+      <div class="info-item"><div class="info-label">Vigencia documentos</div><div class="info-value">${getBadgeVigencia(c.vigencia_doc)}</div></div>
+      <div class="info-item">
+        <div class="info-label">Perfil Creado (ERP/Centro)</div>
+        <div class="info-value">
+          <input type="checkbox" class="perfil-creado-chk" ${String(c.perfil_creado||'').toUpperCase()==='TRUE'?'checked':''} disabled style="pointer-events:none;vertical-align:middle;">
+          <span style="font-size:13px;margin-left:4px;vertical-align:middle;">${String(c.perfil_creado||'').toUpperCase()==='TRUE'?'Sí':'No'}</span>
+        </div>
+      </div>
+      <div class="info-item"><div class="info-label">Fecha recibido doc.</div><div class="info-value mono">${escH(c.fecha_recibido_doc)||'—'}</div></div>
+      <div class="info-item"><div class="info-label">Fecha vencimiento doc.</div><div class="info-value mono">${escH(c.fecha_venc_doc)||'—'}</div></div>
+      <div class="info-item info-full"><div class="info-label">Facturación electrónica</div><div class="info-value">${escH(c.facturacion_electronica)||'—'}</div></div>
+    </div>
+    ${c.novedades ? `<div class="info-section-title">Novedades</div><div style="padding:12px 14px;background:var(--surface2);border-radius:var(--radius-sm);border:1px solid var(--border);font-size:13px;color:var(--text2);line-height:1.6;">${escH(c.novedades)}</div>` : ''}`;
+
+  const overlay = document.getElementById('drawerOverlay');
+  const panel   = document.getElementById('drawerPanel');
+  if (overlay) overlay.classList.remove('hidden');
+  if (panel)   requestAnimationFrame(() => panel.classList.add('open'));
+}
+
+function cerrarDrawer() {
+  const panel   = document.getElementById('drawerPanel');
+  const overlay = document.getElementById('drawerOverlay');
+  if (panel) panel.classList.remove('open');
+  setTimeout(() => { if (overlay) overlay.classList.add('hidden'); }, 320);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CENTROS
+═══════════════════════════════════════════════════════════ */
+const CENTROS_STATE = { centros: [], creditos: [] };
+
+function cargarCentrosFiltro() {
+  google.script.run
+    .withSuccessHandler(hots => {
+      const sel = document.getElementById('filterCentro');
+      if (!sel) return;
+      sel.innerHTML = '<option value="TODOS">Todos los centros</option>';
+      const items = (hots || []).map(h => ({ code: h, text: getCentroRazon(h) || h }));
+      items.sort((a, b) => a.text.localeCompare(b.text, 'es', { sensitivity: 'base' }));
+      items.forEach(item => {
+        const opt = document.createElement('option');
+        opt.value = item.code;
+        opt.textContent = item.text;
+        sel.appendChild(opt);
+      });
+      APP.centros = hots || [];
+    })
+    .withFailureHandler(() => {})
+    .apiGetCentrosPortal(APP.token);
+}
+
+function cargarCentros() {
+  let hotsDone = false, credsDone = false, hotsData = null, credsData = null;
+  function checkDone() {
+    if (!hotsDone || !credsDone) return;
+    CENTROS_STATE.centros = hotsData || [];
+    CENTROS_STATE.creditos = credsData || [];
+    renderCentros(CENTROS_STATE.centros, CENTROS_STATE.creditos);
+  }
+  google.script.run
+    .withSuccessHandler(res => { hotsData = res.rows || []; hotsDone = true; checkDone(); })
+    .withFailureHandler(() => { hotsData = []; hotsDone = true; checkDone(); })
+    .apiGetConfiguracion(APP.token, 'Centros');
+  google.script.run
+    .withSuccessHandler(res => { credsData = res.creditos || []; credsDone = true; checkDone(); })
+    .withFailureHandler(() => { credsData = []; credsDone = true; checkDone(); })
+    .apiConsultarCreditos({ token: APP.token });
+}
+
+function filtrarCentros() {
+  const q = (document.getElementById('centrosSearch')?.value || '').toLowerCase().trim();
+  if (!q) { renderCentros(CENTROS_STATE.centros, CENTROS_STATE.creditos); return; }
+  renderCentros(
+    CENTROS_STATE.centros.filter(h => [0,1,2,3].some(i => String(h[i]||'').toLowerCase().includes(q))),
+    CENTROS_STATE.creditos, true
+  );
+}
+
+function renderCentros(centros, creditos, isFiltered) {
+  const tbody   = document.getElementById('centrosTableBody');
+  const countEl = document.getElementById('centrosCount');
+  if (countEl) countEl.innerHTML = isFiltered
+    ? `<strong>${centros.length}</strong> de ${CENTROS_STATE.centros.length} centros`
+    : `<strong>${centros.length}</strong> centro${centros.length !== 1 ? 'es' : ''}`;
+  if (!centros.length) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="4"><div class="empty-state"><h3>Sin centros</h3><p>No se encontraron centros.</p></div></td></tr>`;
+    return;
+  }
+  const centroMap = {};
+  (creditos || []).forEach(c => {
+    const h = (c.centro || '').trim(); if (!h) return;
+    if (!centroMap[h]) centroMap[h] = [];
+    centroMap[h].push(c);
+  });
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  centros.forEach(hRow => {
+    const codigo = String(hRow[0]||'').trim(), nombre = String(hRow[1]||'').trim();
+    const nit    = String(hRow[2]||'').trim(), razon  = String(hRow[3]||'').trim();
+    const linked = centroMap[nombre] || centroMap[codigo] || [];
+    const activos = linked.filter(c => (c.estado_credito||'').toLowerCase() === 'activo').length;
+    const tr = document.createElement('tr');
+    tr.onclick = () => abrirModalCentro(codigo, nombre, nit, razon, linked);
+    tr.innerHTML = `
+      <td class="td-mono td-main">${escH(codigo)}</td>
+      <td><div class="td-main" style="font-size:13px;color:var(--navy2);">${escH(nombre)}</div>${razon?`<div class="td-mono td-muted">${escH(razon)} · NIT: ${escH(nit)}</div>`:''}</td>
+      <td>${!linked.length?'<span class="td-muted">Ninguna solicitud vinculada</span>':`<div class="chip-wrap">${linked.slice(0,3).map(c=>`<span class="chip chip-${(c.estado_credito||'').toLowerCase()==='activo'?'activo':'default'}">${escH((c.razon_social||'—').substring(0,22))}</span>`).join('')}${linked.length>3?`<span class="chip chip-default">+${linked.length-3} más</span>`:''}</div>`}</td>
+      <td style="text-align:right;padding-right:24px;">${activos>0?`<span class="badge badge-activo">${activos} activo${activos!==1?'s':''}</span>`:'<span class="td-muted">—</span>'}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function abrirModalCentro(codigo, nombre, nit, razon, linked) {
+  if (typeof linked === 'string') { try { linked = JSON.parse(linked); } catch(e) { linked = []; } }
+  document.getElementById('mCentroNombre').textContent = nombre || 'Centro';
+  document.getElementById('mCentroCodigo').textContent = 'Código: ' + (codigo || '—');
+  document.getElementById('mCentroRazon').textContent  = razon || '—';
+  document.getElementById('mCentroNit').textContent    = nit   || '—';
+  const activos = (linked||[]).filter(c => (c.estado_credito||'').toLowerCase() === 'activo').length;
+  document.getElementById('mCentroTotal').textContent = `${activos} crédito${activos!==1?'s':''} activo${activos!==1?'s':''}`;
+  const solsEl = document.getElementById('mCentroSolicitudes');
+  solsEl.innerHTML = (!linked||!linked.length)
+    ? '<p style="color:var(--muted);font-size:13px;text-align:center;padding:20px;">No hay solicitudes vinculadas.</p>'
+    : linked.map(c => `<div onclick='cerrarModalCentro();abrirDrawerCredito(${JSON.stringify(c).replace(/'/g,"&#39;")})' style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;transition:background .12s;" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''"><div style="display:flex;flex-direction:column;gap:2px;"><span style="font-size:13px;font-weight:700;color:var(--text);">${escH(c.razon_social||'—')}</span><span style="font-size:11px;font-family:var(--font-mono);color:var(--muted);">NIT: ${escH(c.nit||'—')}</span></div><div style="display:flex;align-items:center;gap:8px;">${getBadgeEstado(c.estado_credito)}${getBadgeVigencia(c.vigencia_doc)}</div></div>`).join('');
+  document.getElementById('modalCentro').classList.remove('hidden');
+}
+function cerrarModalCentro() { document.getElementById('modalCentro').classList.add('hidden'); }
+
+/* ═══════════════════════════════════════════════════════════
+   DOCUMENTOS
+═══════════════════════════════════════════════════════════ */
+function cargarDocumentos() {
+  google.script.run
+    .withSuccessHandler(res => {
+      const creditos = (res && res.ok ? res.creditos : []) || [];
+      const hoy = new Date(); hoy.setHours(0,0,0,0);
+      let vencidos = 0, porVencer = 0;
+      const alertas = [];
+      creditos.forEach(c => {
+        if (!c.fecha_venc_doc) return;
+        const parts = c.fecha_venc_doc.split('/');
+        const venc  = parts.length === 3 ? new Date(parts[2], parts[1]-1, parts[0]) : new Date(c.fecha_venc_doc);
+        if (isNaN(venc.getTime())) return;
+        venc.setHours(0,0,0,0);
+        const dias = Math.ceil((venc - hoy) / 86400000);
+        if (dias < 0)        { vencidos++;  alertas.push({ c, dias, tipo: 'vencido' }); }
+        else if (dias <= 15) { porVencer++; alertas.push({ c, dias, tipo: 'por-vencer' }); }
+      });
+      ['docVencidosSk','docPorVencerSk'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+      const vEl = document.getElementById('docVencidosVal');   if (vEl) { vEl.style.display = 'block'; vEl.textContent = vencidos; }
+      const pEl = document.getElementById('docPorVencerVal');  if (pEl) { pEl.style.display = 'block'; pEl.textContent = porVencer; }
+      const grid = document.getElementById('docAlertGrid');
+      if (!grid) return;
+      if (!alertas.length) {
+        grid.innerHTML = `<div style="grid-column:1/-1;"><div class="empty-state">
+          <div style="width:52px;height:52px;border-radius:50%;background:var(--success-bg);border:1px solid var(--success-border);display:flex;align-items:center;justify-content:center;margin:0 auto 12px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2" stroke-linecap="round" style="width:24px;height:24px;"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <h3>Todo en orden</h3><p>No hay documentos vencidos ni próximos a vencer.</p></div></div>`;
+        return;
+      }
+      alertas.sort((a,b) => a.dias - b.dias);
+      grid.innerHTML = alertas.map(({ c, dias, tipo }) => {
+        const icoSvg = tipo === 'vencido'
+          ? `<svg viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2" stroke-linecap="round" style="width:18px;height:18px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`
+          : `<svg viewBox="0 0 24 24" fill="none" stroke="var(--warning)" stroke-width="2" stroke-linecap="round" style="width:18px;height:18px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
+        const badgeCls = tipo === 'vencido' ? 'badge-inactivo' : 'badge-porvencer';
+        const label    = tipo === 'vencido' ? `Vencido hace ${Math.abs(dias)} día${Math.abs(dias)!==1?'s':''}` : `Vence en ${dias} día${dias!==1?'s':''}`;
+        return `<div class="doc-alert-card" onclick='abrirDrawerCredito(${JSON.stringify(c).replace(/'/g,"&#39;")})'>
+          <div class="doc-alert-ico doc-alert-${tipo}">${icoSvg}</div>
+          <div class="doc-alert-content">
+            <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:2px;">${escH(c.razon_social||'—')}</div>
+            <div style="font-size:11px;font-family:var(--font-mono);color:var(--muted);margin-bottom:6px;">NIT: ${escH(c.nit||'—')} · Centro: ${escH(c.centro||'—')}</div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span class="badge ${badgeCls}">${label}</span>
+              <span style="font-size:11px;font-family:var(--font-mono);color:var(--muted);">Venc: ${escH(c.fecha_venc_doc||'—')}</span>
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+    })
+    .withFailureHandler(() => showToast('Error al cargar documentos.', 'error'))
+    .apiConsultarCreditos({ token: APP.token });
+}
+
+/* ═══════════════════════════════════════════════════════════
+   UTILIDADES
+═══════════════════════════════════════════════════════════ */
+function actualizarUtilidades() {
+  const email = sessionStorage.getItem('hd_res_email') || '';
+  const u = document.getElementById('utilUsuario'); if (u) u.textContent = email || APP.nombre || '—';
+  const r = document.getElementById('utilRol');    if (r) r.textContent = APP.rol || '—';
+}
+function cargarTodo() {
+  showToast('Recargando datos...', 'info');
+  cargarKpis();
+  cargarCentrosFiltro();
+  cargarNotificaciones(true);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   EXPORTAR CSV
+═══════════════════════════════════════════════════════════ */
+function exportarCSV() {
+  if (!APP.creditos.length) { showToast('Primero carga los créditos en la vista "Créditos".', 'warning'); return; }
+  const headers = ['Razón Social','NIT','Centro','Monto','Fecha Aprobación','Estado','Fecha Rec. Doc','Fecha Venc. Doc','Vigencia Doc','Facturación Electrónica','Aprobado Por','Novedades','Solicitado Por'];
+  const rows = APP.creditos.map(c => [c.razon_social,c.nit,c.centro,c.monto,c.fecha_aprobacion,c.estado_credito,c.fecha_recibido_doc,c.fecha_venc_doc,c.vigencia_doc,c.facturacion_electronica,c.aprobado_por,c.novedades,c.solicitado_por].map(v => `"${String(v||'').replace(/"/g,'""')}"`));
+  const csv  = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a'); a.href = url; a.download = `creditos_centrosdemo_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+  URL.revokeObjectURL(url);
+  showToast('CSV exportado correctamente.', 'success');
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MODAL CONFIRMACIÓN
+═══════════════════════════════════════════════════════════ */
+function mostrarModalConfirm(titulo, mensaje, onAceptar) {
+  document.getElementById('confirmTitulo').textContent = titulo;
+  document.getElementById('confirmMsg').textContent    = mensaje;
+  const btn = document.getElementById('confirmBtnAccept');
+  btn.onclick = () => { cerrarModalConfirm(); if (typeof onAceptar === 'function') onAceptar(); };
+  document.getElementById('modalConfirm').classList.remove('hidden');
+}
+function cerrarModalConfirm() { document.getElementById('modalConfirm').classList.add('hidden'); }
+
+/* ═══════════════════════════════════════════════════════════
+   BADGES
+═══════════════════════════════════════════════════════════ */
+function getBadgeEstado(estado) {
+  if (!estado) return '<span class="td-muted">—</span>';
+  const e = estado.toLowerCase();
+  let cls = 'badge-activo';
+  if (e === 'vencido' || e === 'inactivo')          cls = 'badge-inactivo';
+  else if (e.includes('corporativo'))               cls = 'badge-bloqueado-corp';
+  else if (e.includes('gerencia'))                  cls = 'badge-bloqueado-ger';
+  else if (e === 'por vencer')                      cls = 'badge-porvencer';
+  return `<span class="badge ${cls}">${escH(estado)}</span>`;
+}
+function getBadgeVigencia(v) {
+  if (!v) return '<span class="td-muted">—</span>';
+  const vl = v.toLowerCase().replace(/_/g,' ');
+  let cls = 'badge-vigente';
+  if (vl === 'no vigente') cls = 'badge-novigente';
+  else if (vl === 'por vencer') cls = 'badge-porvencer';
+  return `<span class="badge ${cls}">${escH(v)}</span>`;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   TOGGLE PERFIL CREADO
+═══════════════════════════════════════════════════════════ */
+function togglePerfilCreado(chk, rowIdx, creditId) {
+  const isChecked = chk.checked;
+  chk.checked = !isChecked;
+  mostrarModalConfirm('Confirmar cambio de perfil',
+    `¿Estás seguro de que deseas marcar este perfil como ${isChecked ? 'Creado' : 'No Creado'}?`,
+    () => {
+      chk.checked = isChecked;
+      chk.disabled = true;
+      google.script.run
+        .withSuccessHandler(res => {
+          chk.disabled = false;
+          if (res.ok) {
+            showToast('Estado de perfil creado actualizado.', 'success');
+            const c = (APP.creditos || []).find(x => x._rowIdx === rowIdx);
+            if (c) c.perfil_creado = isChecked ? 'TRUE' : 'FALSE';
+          } else {
+            chk.checked = !isChecked;
+            showToast('Error al actualizar: ' + (res.error || ''), 'error');
+          }
+        })
+        .withFailureHandler(err => {
+          chk.disabled = false;
+          chk.checked = !isChecked;
+          showToast('Error de conexión: ' + (err && err.message), 'error');
+        })
+        .apiTogglePerfilCreado({ token: APP.token, rowIdx, checked: isChecked });
+    }
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   TOAST
+═══════════════════════════════════════════════════════════ */
+function showToast(msg, type) {
+  const tc = document.getElementById('toastContainer');
+  if (!tc) return;
+  const t = document.createElement('div');
+  t.className = `toast toast-${type || 'info'}`;
+  const icos = {
+    success: `<svg viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2" stroke-linecap="round" style="width:16px;height:16px;flex-shrink:0;"><polyline points="20 6 9 17 4 12"/></svg>`,
+    error:   `<svg viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2" stroke-linecap="round" style="width:16px;height:16px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`,
+    warning: `<svg viewBox="0 0 24 24" fill="none" stroke="var(--warning)" stroke-width="2" stroke-linecap="round" style="width:16px;height:16px;flex-shrink:0;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+    info:    `<svg viewBox="0 0 24 24" fill="none" stroke="var(--info)" stroke-width="2" stroke-linecap="round" style="width:16px;height:16px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`,
+  };
+  t.innerHTML = `<span class="toast-ico">${icos[type] || icos.info}</span><span class="toast-msg">${msg}</span><button class="toast-close" onclick="this.parentNode.remove()">×</button>`;
+  tc.appendChild(t);
+  setTimeout(() => { t.classList.add('dismissing'); setTimeout(() => { if (t.parentNode) t.parentNode.removeChild(t); }, 220); }, 4500);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   HELPERS
+═══════════════════════════════════════════════════════════ */
+function escH(str) {
+  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function showLoading() {
+  document.body.style.cursor = 'wait';
+}
+
+function hideLoading() {
+  document.body.style.cursor = 'default';
+}
+
+function limpiarBusquedaGlobal() {
+  const gs = document.getElementById('globalSearch');
+  const searchClear = document.getElementById('globalSearchClear');
+  const searchKbd = document.querySelector('.ph-search-kbd');
+  if (gs) {
+    gs.value = '';
+    gs.focus();
+  }
+  if (searchClear) searchClear.style.display = 'none';
+  if (searchKbd) searchKbd.style.display = 'inline-block';
+
+  const fb = document.getElementById('filterBusqueda');
+  if (fb) fb.value = '';
+  filtrarCreditos();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SOLICITUDES EN EL PORTAL DE CONSULTA (OPERACIONES)
+   ═══════════════════════════════════════════════════════════ */
+let _solicitudesAll = [];
+
+const CENTROS_RAZON_MAP = {
+  'CDNORTE': 'CENTRO DEMO NORTE S.A.S',
+  'CDCENTRO': 'DISTRIBUIDORA DEMO CENTRO S.A.S.',
+  'CDSUR': 'CENTRO DEMO SUR S.A.S',
+  'CDCOSTA': 'INVERSIONES DEMO COSTA S.A.S',
+  'CDANDES': 'CENTRO DEMO ANDES S.A.S',
+  'CDVALLE': 'DESARROLLOS DEMO VALLE S.A.S',
+  'CDISLA': 'PROYECTOS DEMO ISLA S.A.S',
+  'CDBOSQUE': 'CENTRO DEMO BOSQUE S.A.S'
+};
+
+function getCentroRazon(codigo) {
+  if (!codigo) return '';
+  const c = String(codigo).trim().toUpperCase();
+  return CENTROS_RAZON_MAP[c] || codigo;
+}
+
+function getCentroChipsHtml(centroCodesStr, max) {
+  max = max || 3;
+  if (!centroCodesStr) return '<span class="td-muted">—</span>';
+  const codes = centroCodesStr.split(',').map(c => c.trim()).filter(Boolean);
+  if (!codes.length) return '<span class="td-muted">—</span>';
+  const visible = codes.slice(0, max);
+  const extra = codes.length - max;
+  let html = '<div style="display:flex; flex-wrap:wrap; gap:4px; max-width: 320px;">';
+  html += visible.map(c => {
+    const razon = getCentroRazon(c);
+    return '<span class="centro-chip" title="' + escH(razon) + '">' + escH(razon) + '</span>';
+  }).join('');
+  if (extra > 0) {
+    const extraTooltip = codes.slice(max).map(c => getCentroRazon(c)).join(', ');
+    html += '<span class="centro-chip centro-chip-more" title="' + escH(extraTooltip) + '">+' + extra + '</span>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function getBadgePortalHtml(codeStr) {
+  const code = (codeStr || '').trim().toUpperCase();
+  if (!code || code === 'PENDIENTE' || code === 'PENDIENTE_REVISION' || code.includes('PENDIENTE')) {
+    return '<span class="badge badge-pending"><span class="badge-dot"></span>Pendiente</span>';
+  }
+  if (code === 'APROBADA' || code === 'ACTIVA' || code === 'ACTIVO') {
+    return '<span class="badge badge-approved"><span class="badge-dot"></span>Aprobada</span>';
+  }
+  if (code.startsWith('RECHAZADA')) {
+    return '<span class="badge badge-rejected"><span class="badge-dot"></span>Rechazada</span>';
+  }
+  if (code === 'EN_REVISION') {
+    return '<span class="badge badge-review"><span class="badge-dot"></span>En revisión</span>';
+  }
+  if (code === 'VENCIDA' || code === 'VENCIDO') {
+    return '<span class="badge badge-rejected"><span class="badge-dot"></span>Vencido</span>';
+  }
+  if (code === 'POR VENCER' || code === 'POR_VENCER') {
+    return '<span class="badge badge-pending"><span class="badge-dot"></span>Por Vencer</span>';
+  }
+  return '<span class="badge badge-synced"><span class="badge-dot"></span>' + escH(code) + '</span>';
+}
+
+function cargarSolicitudesPortal(force) {
+  _sPagina = 1;
+  _fetchSolicitudesPortal_(force);
+}
+
+function _fetchSolicitudesPortal_(force) {
+  const tbody = document.getElementById('solicitudesTableBodyPortal');
+
+  const applyClientFiltersAndRender = () => {
+    const busqueda = (document.getElementById('filterBusquedaSol')?.value || '').trim().toLowerCase();
+    const estado   = document.getElementById('filterEstadoSol')?.value || 'TODOS';
+
+    const btnLimpiar = document.getElementById('btnLimpiarFiltrosSol');
+    if (btnLimpiar) {
+      btnLimpiar.style.display = (busqueda || estado !== 'TODOS') ? 'inline-flex' : 'none';
+    }
+
+    let filtered = _solicitudesAll;
+    if (busqueda) {
+      filtered = filtered.filter(s =>
+        (s.razon_social     || '').toLowerCase().includes(busqueda) ||
+        (s.identificacion   || '').toLowerCase().includes(busqueda) ||
+        (s.codigo_solicitud || '').toLowerCase().includes(busqueda) ||
+        (s.ejecutivo_cuenta || '').toLowerCase().includes(busqueda) ||
+        (s.centro_codigo     || '').toLowerCase().includes(busqueda) ||
+        (s.centro_codigo     || '').split(',').some(c => getCentroRazon(c).toLowerCase().includes(busqueda))
+      );
+    }
+    if (estado && estado !== 'TODOS') {
+      filtered = filtered.filter(s =>
+        (s.estado_codigo || '').toUpperCase() === estado.toUpperCase()
+      );
+    }
+
+    _solicitudesList = filtered;
+    _sTotal = _solicitudesList.length;
+    
+    const countEl = document.getElementById('countTextSol');
+    if (countEl) countEl.innerHTML = `<strong>${_sTotal}</strong>`;
+    
+    renderSolicitudesPortal();
+  };
+
+  if (_solicitudesAll && _solicitudesAll.length > 0 && !force) {
+    applyClientFiltersAndRender();
+    return;
+  }
+
+  if (tbody) {
+    tbody.innerHTML = [1,2,3,4].map(() => `<tr class="sk-row">
+      <td><div class="sk sk-text" style="width:90px;"></div></td>
+      <td><div class="sk sk-text" style="width:150px;"></div></td>
+      <td><div class="sk sk-text" style="width:80px;"></div></td>
+      <td><div class="sk sk-text" style="width:80px;"></div></td>
+      <td><div class="sk sk-text" style="width:120px;"></div></td>
+      <td><div class="sk sk-text" style="width:70px;"></div></td>
+      <td><div class="sk sk-text" style="width:90px;"></div></td>
+      <td><div class="sk sk-text" style="width:200px;"></div></td>
+      <td><div class="sk sk-text" style="width:60px;margin:0 auto;"></div></td>
+    </tr>`).join('');
+  }
+
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res || !res.ok) {
+        showToast('Error al cargar solicitudes: ' + ((res && res.error) || ''), 'error');
+        if (tbody) tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--muted);">No se pudieron cargar las solicitudes.</td></tr>`;
+        return;
+      }
+      if (res.payload_json) {
+        const parsed = JSON.parse(res.payload_json);
+        _solicitudesAll = parsed.solicitudes || [];
+      } else {
+        _solicitudesAll = res.solicitudes || [];
+      }
+      applyClientFiltersAndRender();
+    })
+    .withFailureHandler(err => {
+      showToast('Error de conexión: ' + (err && err.message), 'error');
+      if (tbody) tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--muted);">Error de conexión.</td></tr>`;
+    })
+    .apiGetSolicitudesEjecutivo({
+      token: APP.token,
+      _force: force || false
+    });
+}
+
+function filtrarSolicitudesPortal() {
+  _sPagina = 1;
+  _fetchSolicitudesPortal_(false);
+}
+
+function limpiarFiltrosSol() {
+  const b = document.getElementById('filterBusquedaSol'); if (b) b.value = '';
+  const e = document.getElementById('filterEstadoSol');   if (e) e.value = 'TODOS';
+  filtrarSolicitudesPortal();
+}
+
+function renderSolicitudesPortal() {
+  const tbody = document.getElementById('solicitudesTableBodyPortal');
+  if (!tbody) return;
+
+  if (!_solicitudesList || !_solicitudesList.length) {
+    tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:48px;color:var(--muted);"><div class="empty-state"><h3>Sin solicitudes</h3><p>No se encontraron solicitudes con los filtros aplicados.</p></div></td></tr>`;
+    const pag = document.getElementById('pagSolicitudesPortal'); if (pag) pag.innerHTML = '';
+    return;
+  }
+
+  // Paginación local en el frontend
+  const start = (_sPagina - 1) * _sPorPagina;
+  const end = Math.min(start + _sPorPagina, _solicitudesList.length);
+  const sliced = _solicitudesList.slice(start, end);
+
+  tbody.innerHTML = sliced.map(s => {
+    const badge = getBadgePortalHtml(s.estado_codigo);
+
+    const formatMonto = s.monto > 0 ? '$ ' + parseFloat(s.monto).toLocaleString('es-CO') : '—';
+    const comentTxt = escH(s.comentarios || '');
+    const comentFmt = comentTxt 
+      ? `<span class="coment-text" title="${comentTxt}">${comentTxt.length > 80 ? comentTxt.slice(0, 80) + '…' : comentTxt}</span>`
+      : '<span class="td-muted">—</span>';
+
+    return `
+      <tr>
+        <td class="td-mono" style="font-size:12px;font-weight:600;">${escH(s.codigo_solicitud)}</td>
+        <td class="col-empresa">
+          <span class="td-razon" title="${escH(s.razon_social)}">${escH(s.razon_social) || '<span class="td-muted">Sin nombre</span>'}</span>
+          <span class="td-nit">${escH(s.identificacion) || '—'}</span>
+        </td>
+        <td><span style="font-size:12px;text-transform:capitalize;">${escH((s.tipo_solicitud || '').toLowerCase())}</span></td>
+        <td class="td-mono text-right" style="font-weight:600;color:var(--navy2);">${formatMonto}</td>
+        <td>${getCentroChipsHtml(s.centro_codigo)}</td>
+        <td>${badge}</td>
+        <td class="td-mono" style="font-size:11.5px;">${escH(s.fecha_envio)}</td>
+        <td style="max-width:300px;font-size:12.5px;color:var(--text2);">${comentFmt}</td>
+        <td style="text-align:center;">
+          <button class="btn btn-outline btn-xs" onclick="abrirModalComentario('${s.uuid}', '${escH(s.razon_social).replace(/'/g, "\\'")}', '${escH(s.comentarios).replace(/'/g, "\\'")}')" style="padding:4px 8px;font-size:11.5px;gap:4px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:12px;height:12px;">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+            Comentar
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  renderBarraPaginacion('pagSolicitudesPortal', _solicitudesList.length, _sPagina, _sPorPagina, 'irPaginaSolicitudesPortal', 'cambiarSizeSolicitudesPortal');
+}
+
+function irPaginaSolicitudesPortal(pagina)  { _sPagina = pagina; renderSolicitudesPortal(); }
+function cambiarSizeSolicitudesPortal(size) { _sPorPagina = size; _sPagina = 1; renderSolicitudesPortal(); }
+
+/* ─── MODAL COMENTARIO EJECUTIVO ─────────────────────────── */
+function abrirModalComentario(uuid, razonSocial, comentarioExistente) {
+  const m = document.getElementById('modalComentario');
+  const sub = document.getElementById('mComentarioSub');
+  const txt = document.getElementById('mComentarioTexto');
+  const idInput = document.getElementById('mComentarioUuid');
+
+  if (idInput) idInput.value = uuid;
+  if (sub) sub.textContent = razonSocial || 'Solicitud';
+  if (txt) txt.value = comentarioExistente || '';
+
+  if (m) m.classList.remove('hidden');
+}
+
+function cerrarModalComentario() {
+  const m = document.getElementById('modalComentario');
+  if (m) m.classList.add('hidden');
+}
+
+function guardarComentarioPortal() {
+  const uuid = document.getElementById('mComentarioUuid')?.value || '';
+  const comentario = document.getElementById('mComentarioTexto')?.value || '';
+  const btn = document.getElementById('btnGuardarComentarioPortal');
+
+  if (!uuid) return;
+
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+
+  // Actualización optimista local en memoria (0ms)
+  if (_solicitudesAll && _solicitudesAll.length) {
+    const itemAll = _solicitudesAll.find(s => String(s.uuid) === String(uuid));
+    if (itemAll) itemAll.comentarios = comentario;
+  }
+  if (_solicitudesList && _solicitudesList.length) {
+    const itemList = _solicitudesList.find(s => String(s.uuid) === String(uuid));
+    if (itemList) itemList.comentarios = comentario;
+  }
+
+  // Renderizar la tabla de inmediato sin esqueletos (0ms)
+  renderSolicitudesPortal();
+
+  google.script.run
+    .withSuccessHandler(res => {
+      if (btn) { btn.disabled = false; btn.textContent = 'Guardar Comentario'; }
+      if (res && res.ok) {
+        showToast('Comentario guardado correctamente', 'success');
+        cerrarModalComentario();
+      } else {
+        showToast('Error al guardar comentario: ' + ((res && res.error) || ''), 'error');
+        // Si falló en servidor, recargar de respaldo
+        _fetchSolicitudesPortal_(true);
+      }
+    })
+    .withFailureHandler(err => {
+      if (btn) { btn.disabled = false; btn.textContent = 'Guardar Comentario'; }
+      showToast('Error de conexión: ' + (err && err.message), 'error');
+    })
+    .apiGuardarComentarioEjecutivo({
+      token: APP.token,
+      uuid,
+      comentario
+    });
+}
+</script>

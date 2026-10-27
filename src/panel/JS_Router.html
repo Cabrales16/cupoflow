@@ -1,0 +1,189 @@
+<script>
+/* ─────────────────────────────────────────────────────────────────────────
+   JS_Router.html — Router SPA y navegación del panel
+   CupoFlow · Panel de Control y Administración - Solicitud de Créditos
+   ───────────────────────────────────────────────────────────────────────── */
+
+// ─── Títulos y subtítulos de cada vista ──────────────────────────────────────
+const VIEW_META = {
+  dashboard      : { title: 'Dashboard',       sub: 'Resumen general de solicitudes de crédito' },
+  notificaciones : { title: 'Notificaciones',  sub: 'Historial de notificaciones de solicitudes' },
+  solicitudes    : { title: 'Solicitudes',     sub: 'Gestión y revisión de expedientes de crédito' },
+  creditos       : { title: 'Base de créditos', sub: 'Gestión individual de cupos aprobados por centro' },
+  centrosCreditos: { title: 'Centros y créditos', sub: 'Consulta de solicitudes vinculadas por centro' },
+  auditoria      : { title: 'Log de auditoría', sub: 'Historial de acciones administrativas del sistema' },
+  configuracion  : { title: 'Gestión de catálogos', sub: 'Administración de catálogos y parámetros de CupoFlow' },
+  usuarios       : { title: 'Gestión de usuarios', sub: 'Control de accesos y roles del sistema de créditos' },
+  backups        : { title: 'Copias de seguridad (backups)', sub: 'Listado y restauración de copias de seguridad de datos' }
+};
+
+// ─── Navegación SPA ───────────────────────────────────────────────────────────
+
+/**
+ * Muestra la vista indicada y oculta las demás.
+ * Actualiza el nav activo del sidebar y el título del header.
+ * Dispara la carga de datos de la vista si es necesario.
+ *
+ * @param {string} viewId - 'dashboard' | 'solicitudes' | 'creditos' | 'centrosCreditos' | 'auditoria' | 'configuracion' | 'usuarios'
+ */
+function showView(viewId) {
+  // Ocultar todas las secciones
+  document.querySelectorAll('.view-section').forEach(s => s.classList.add('hidden'));
+
+  // Desactivar todos los nav items
+  document.querySelectorAll('.sb-item[data-view]').forEach(i => i.classList.remove('active'));
+
+  // Mostrar sección seleccionada
+  const section = document.getElementById('view' + capitalize(viewId));
+  if (section) section.classList.remove('hidden');
+
+  // Activar nav item correspondiente
+  const navItem = document.querySelector('.sb-item[data-view="' + viewId + '"]');
+  if (navItem) navItem.classList.add('active');
+
+  // Actualizar header
+  const meta = VIEW_META[viewId] || { title: 'Panel', sub: '' };
+  setText('pageTitle',    meta.title);
+  setText('pageSubtitle', meta.sub);
+  updateBreadcrumb(viewId, meta.title);
+
+  // Cargar datos de la vista
+  if (viewId === 'dashboard') {
+    cargarDashboard();
+  }
+  if (viewId === 'notificaciones') cargarNotificacionesSeccion();
+  if (viewId === 'solicitudes') cargarSolicitudes();
+  if (viewId === 'creditos')      cargarCrud();
+  if (viewId === 'centrosCreditos') cargarCentrosCreditos();
+  if (viewId === 'auditoria')   cargarAuditoria();
+  if (viewId === 'configuracion') onConfigSheetSelected();
+  if (viewId === 'usuarios')      cargarUsuarios();
+  if (viewId === 'backups')       cargarBackups();
+}
+
+/**
+ * Recarga los datos de la vista actualmente visible.
+ * Vinculado al botón de recargar en el header.
+ */
+function recargarVista() {
+  const activeNav = document.querySelector('.sb-item.active[data-view]');
+  const viewId    = activeNav ? activeNav.dataset.view : 'dashboard';
+
+  if (viewId === 'dashboard') {
+    cargarDashboard(true);
+  } else if (viewId === 'notificaciones') {
+    cargarNotificacionesSeccion(true);
+  } else if (viewId === 'solicitudes') {
+    cargarSolicitudes(true);
+  } else if (viewId === 'creditos') {
+    cargarCrud(true);
+  } else if (viewId === 'centrosCreditos') {
+    cargarCentrosCreditos();
+  } else if (viewId === 'auditoria') {
+    cargarAuditoria();
+  } else if (viewId === 'configuracion') {
+    onConfigSheetSelected();
+  } else if (viewId === 'usuarios') {
+    cargarUsuarios();
+  } else if (viewId === 'backups') {
+    cargarBackups(true);
+  }
+}
+
+// ─── Utilidad ───────────────────────────────────────────────────────────────────────
+
+/** Capitaliza la primera letra de un string. */
+function capitalize(str) {
+  return str ? str.charAt(0).toUpperCase() + str.slice(1) : '';
+}
+
+/**
+ * Actualiza el breadcrumb del header con la ruta actual.
+ * @param {string} viewId   - ID de la vista activa.
+ * @param {string} viewTitle - Título de la vista.
+ */
+function updateBreadcrumb(viewId, viewTitle) {
+  const bcCurrent = document.getElementById('bcCurrent');
+  if (bcCurrent) {
+    bcCurrent.textContent = viewTitle || capitalize(viewId);
+  }
+}
+
+/**
+ * Agrega un nivel adicional al breadcrumb (ej. para expedientes abiertos).
+ * @param {string} label - Etiqueta del nivel.
+ * @param {function} [onClick] - Callback al hacer click.
+ */
+function pushBreadcrumb(label, onClick) {
+  const nav = document.getElementById('breadcrumbNav');
+  if (!nav) return;
+  const current = document.getElementById('bcCurrent');
+  if (current) current.classList.remove('active');
+
+  const sep  = document.createElement('span');
+  sep.className = 'bc-sep'; sep.textContent = '›';
+  const item = document.createElement('span');
+  item.className = 'bc-item active'; item.id = 'bcCurrent';
+  item.textContent = label;
+  nav.appendChild(sep);
+  nav.appendChild(item);
+}
+
+/**
+ * Navega a la vista de Solicitudes y aplica el filtro de estado programáticamente.
+ * @param {string} estado - Estado a filtrar (ej. 'PENDIENTE', 'APROBADA', 'RECHAZADA TEMPORALMENTE', o '' para todas).
+ */
+function irASolicitudesConFiltro(estado) {
+  showView('solicitudes');
+  
+  // Limpiar buscador para no solapar filtros
+  const searchInput = document.getElementById('searchInput');
+  if (searchInput) searchInput.value = '';
+  STATE.busqueda = '';
+  
+  const chip = document.querySelector(`#viewSolicitudes .filter-chips .chip[data-estado="${estado}"]`);
+  if (chip) {
+    setFiltroEstado(chip, estado);
+  } else {
+    // Fallback si no hay chip visible (ej. EN_REVISION)
+    document.querySelectorAll('#viewSolicitudes .filter-chips .chip').forEach(c => c.classList.remove('active'));
+    STATE.filtroEstado = estado;
+    _solPagina = 1;
+    _fetchSolicitudesPage_();
+  }
+}
+
+/**
+ * Navega a la vista de Solicitudes y filtra por tipo de solicitud programáticamente en la búsqueda.
+ * @param {string} tipo - Tipo de solicitud (ej. 'NUEVA', 'AMPLIACION', 'RENOVACION', 'HOMOLOGACION').
+ */
+function irASolicitudesConTipo(tipo) {
+  showView('solicitudes');
+  
+  // Limpiar el filtro de estado (mostrar Todas)
+  const allChip = document.querySelector(`#viewSolicitudes .filter-chips .chip[data-estado=""]`);
+  if (allChip) {
+    document.querySelectorAll('#viewSolicitudes .filter-chips .chip').forEach(c => c.classList.remove('active'));
+    allChip.classList.add('active');
+  }
+  STATE.filtroEstado = '';
+  
+  // Setear el buscador con el tipo traducido/legible
+  const searchInput = document.getElementById('searchInput');
+  if (searchInput) {
+    const displayMap = {
+      'NUEVA': 'Nueva',
+      'AMPLIACION': 'Ampliación',
+      'RENOVACION': 'Renovación',
+      'HOMOLOGACION': 'Homologación'
+    };
+    const term = displayMap[tipo] || tipo;
+    searchInput.value = term;
+    STATE.busqueda = term;
+    
+    // Ejecutar búsqueda
+    _solPagina = 1;
+    _fetchSolicitudesPage_();
+  }
+}
+</script>

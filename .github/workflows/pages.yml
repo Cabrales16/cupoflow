@@ -1,0 +1,61 @@
+# Despliegue de la demo en GitHub Pages.
+# Basado en la plantilla oficial "Deploy Jekyll site to Pages" (mismos permisos, concurrencia y
+# acciones configure-pages / upload-pages-artifact / deploy-pages), pero el sitio NO es Jekyll:
+# se genera con Node (demo/build.mjs) en ./site, así que se sustituye Ruby/Jekyll por Node.
+name: Deploy demo to Pages
+
+on:
+  # Se ejecuta en cada push a la rama principal
+  push:
+    branches: ["main"]
+
+  # Permite ejecutarlo manualmente desde la pestaña Actions
+  workflow_dispatch:
+
+# Permisos del GITHUB_TOKEN para poder desplegar en GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Un solo despliegue a la vez; no se cancelan los que están en curso.
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  # Job de construcción
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Setup Pages
+        id: pages
+        uses: actions/configure-pages@v5
+      - name: Build demo
+        # Genera el sitio estático en ./site (rutas relativas: funciona bajo /<repo>/)
+        run: node demo/build.mjs
+      - name: Scan for secrets
+        # Falla el despliegue si aparece una clave, ID de recurso, hash o correo real
+        run: node tools/scan-secrets.mjs
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  # Job de despliegue
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

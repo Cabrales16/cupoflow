@@ -1,0 +1,503 @@
+<script>
+/* ─────────────────────────────────────────────────────────────────────────
+   JS_Notificaciones.html — Sistema de notificaciones del Panel de Control
+   CupoFlow · Panel de Control y Administración - Solicitud de Créditos
+   ─────────────────────────────────────────────────────────────────────────
+   Usa la base de datos MySQL (tabla notificaciones_leidas) para persistir
+   el estado leído/no-leído por usuario, en lugar de localStorage.
+   Los datos de notificaciones se derivan de las solicitudes recientes.
+   ───────────────────────────────────────────────────────────────────────── */
+
+let _notifItems   = [];   // Cache de notificaciones actuales del dropdown
+let _notifOpen    = false; // Estado del panel dropdown
+let _notifReadIds = new Set(); // Cache de IDs de solicitudes leídas en la BD
+
+// ─── Abrir / cerrar panel dropdown ───────────────────────────────────────────
+function toggleNotifPanel() {
+  const panel = document.getElementById('notifDropdown');
+  if (!panel) return;
+  _notifOpen = !_notifOpen;
+  if (_notifOpen) {
+    panel.classList.remove('hidden');
+    cargarNotificaciones();
+    // Cerrar al hacer click fuera
+    setTimeout(() => {
+      document.addEventListener('click', _cerrarNotifFuera, { once: true });
+    }, 50);
+  } else {
+    panel.classList.add('hidden');
+  }
+}
+
+function _cerrarNotifFuera(e) {
+  const panel = document.getElementById('notifDropdown');
+  const btn   = document.getElementById('btnNotif');
+  if (panel && !panel.contains(e.target) && btn && !btn.contains(e.target)) {
+    panel.classList.add('hidden');
+    _notifOpen = false;
+  }
+}
+
+// ─── Cargar notificaciones desde el backend ───────────────────────────────────
+function cargarNotificaciones(force) {
+  if (!force && _notifItems.length > 0) {
+    renderNotificaciones(_notifItems);
+    return;
+  }
+  const token = sessionStorage.getItem('hd_panel_token') || '';
+  
+  google.script.run
+    .withSuccessHandler(readIdsArr => {
+      _notifReadIds = new Set(readIdsArr || []);
+      
+      google.script.run
+        .withSuccessHandler(result => {
+          const data = result.data || result || [];
+          _notifItems = data.slice(0, 12);
+          renderNotificaciones(_notifItems);
+        })
+        .withFailureHandler(() => {
+          const list = document.getElementById('notifList');
+          if (list) list.innerHTML = '<li class="notif-empty">No se pudieron cargar las notificaciones.</li>';
+        })
+        .apiGetSolicitudes(token, { pagina: 1, limite: 12, ordenar: 'fecha_desc' });
+    })
+    .withFailureHandler(err => {
+      console.error('Error al cargar notificaciones leídas de la BD: ' + err.message);
+      _notifReadIds = new Set();
+      
+      google.script.run
+        .withSuccessHandler(result => {
+          const data = result.data || result || [];
+          _notifItems = data.slice(0, 12);
+          renderNotificaciones(_notifItems);
+        })
+        .apiGetSolicitudes(token, { pagina: 1, limite: 12, ordenar: 'fecha_desc' });
+    })
+    .apiGetNotificacionesLeidas(token);
+}
+
+// ─── Renderizar lista de notificaciones en el dropdown ──────────────────────────
+function renderNotificaciones(items) {
+  const list  = document.getElementById('notifList');
+  if (!list) return;
+
+  if (!items || items.length === 0) {
+    list.innerHTML = '<li class="notif-empty">No hay notificaciones recientes.</li>';
+    _updateBadges(0);
+    return;
+  }
+
+  let unreadCount = 0;
+  list.innerHTML = items.map(item => {
+    const isRead = _notifReadIds.has(item.uuid || item.codigo_solicitud || '');
+    if (!isRead) unreadCount++;
+    const clsRead = isRead ? 'read' : 'unread';
+    const titulo  = escHtml(item.razon_social || item.empresa || 'Nueva solicitud');
+    const codigo  = escHtml(item.codigo_solicitud || '');
+    const estado  = escHtml(item.accion || 'PENDIENTE');
+    let displayEstado = estado.toUpperCase();
+    if (displayEstado === 'ACTIVO' || displayEstado === 'ACTIVA') {
+      displayEstado = 'APROBADA';
+    } else if (displayEstado.includes('PENDIENTE')) {
+      displayEstado = 'PENDIENTE';
+    }
+    const tiempo  = _tiempoRelativo(item.fecha_envio || item.fecha || '');
+    const id      = escHtml(item.uuid || item.codigo_solicitud || '');
+
+    return `<li class="notif-item ${clsRead}" data-id="${id}" onclick="_abrirNotif('${id}', this)">
+      <span class="notif-dot"></span>
+      <div class="notif-body">
+        <div class="notif-body-title">${titulo}</div>
+        <div class="notif-body-sub">${codigo} · ${displayEstado}</div>
+      </div>
+      <span class="notif-time">${tiempo}</span>
+    </li>`;
+  }).join('');
+
+  _updateBadges(unreadCount);
+}
+
+// ─── Actualizar los contadores visuales (Header y Sidebar) ─────────────────────
+function _updateBadges(unreadCount) {
+  const badge = document.getElementById('notifBadge');
+  const badgeSidebar = document.getElementById('badgeNotifSidebar');
+  
+  if (badge) {
+    if (unreadCount > 0) {
+      badge.textContent = unreadCount > 9 ? '9+' : unreadCount;
+      badge.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
+    }
+  }
+  
+  if (badgeSidebar) {
+    if (unreadCount > 0) {
+      badgeSidebar.textContent = unreadCount > 9 ? '9+' : unreadCount;
+      badgeSidebar.style.display = 'inline-flex';
+    } else {
+      badgeSidebar.style.display = 'none';
+    }
+  }
+}
+
+// ─── Abrir expediente desde dropdown ──────────────────────────────────────────
+function _abrirNotif(id, el) {
+  _marcarUnaLeida(id);
+  if (el) el.classList.replace('unread', 'read');
+  toggleNotifPanel();
+  if (typeof abrirExpediente === 'function') {
+    abrirExpediente(id);
+  }
+}
+
+// ─── Marcar una sola notificación como leída en la BD ─────────────────────────
+function _marcarUnaLeida(id) {
+  const token = sessionStorage.getItem('hd_panel_token') || '';
+  if (_notifReadIds.has(id)) return;
+  _notifReadIds.add(id);
+  _recalcBadge();
+  
+  google.script.run
+    .withSuccessHandler(() => {
+      console.log('Notificación marcada como leída en BD: ' + id);
+    })
+    .withFailureHandler(err => {
+      console.error('Error al guardar lectura en la BD: ' + err.message);
+    })
+    .apiMarcarNotificacionesLeidas(token, [id]);
+}
+
+// ─── Marcar todas como leídas (Panel Dropdown) ──────────────────────────────────
+function marcarTodasLeidas() {
+  const token = sessionStorage.getItem('hd_panel_token') || '';
+  const unreadUuids = _notifItems
+    .map(item => item.uuid || item.codigo_solicitud || '')
+    .filter(id => id && !_notifReadIds.has(id));
+    
+  if (unreadUuids.length === 0) return;
+  
+  unreadUuids.forEach(id => _notifReadIds.add(id));
+
+  // Actualizar UI de forma inmediata
+  document.querySelectorAll('.notif-item.unread').forEach(el => {
+    el.classList.replace('unread', 'read');
+  });
+  _recalcBadge();
+  
+  google.script.run
+    .withSuccessHandler(() => {
+      showToast('Todas las notificaciones marcadas como leídas.', 'success');
+    })
+    .withFailureHandler(err => {
+      console.error('Error al marcar todas como leídas: ' + err.message);
+    })
+    .apiMarcarNotificacionesLeidas(token, unreadUuids);
+}
+
+// ─── Recalcular badge de conteo ───────────────────────────────────────────────
+function _recalcBadge() {
+  const readIds = _notifReadIds;
+  const unread = _notifItems.filter(i => !readIds.has(i.uuid || i.codigo_solicitud || '')).length;
+  _updateBadges(unread);
+}
+
+// ─── Tiempo relativo ─────────────────────────────────────────────────────────
+function _tiempoRelativo(fechaStr) {
+  if (!fechaStr) return '';
+  try {
+    const fecha = new Date(fechaStr);
+    const diff  = Date.now() - fecha.getTime();
+    const mins  = Math.floor(diff / 60000);
+    if (mins < 1)   return 'ahora';
+    if (mins < 60)  return `${mins}m`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24)   return `${hrs}h`;
+    const days = Math.floor(hrs / 24);
+    if (days < 30)  return `${days}d`;
+    return fecha.toLocaleDateString('es', { day: '2-digit', month: 'short' });
+  } catch { return ''; }
+}
+
+// ─── Inicializar badge al arrancar ───────────────────────────────────────────
+function initNotificaciones() {
+  const token = sessionStorage.getItem('hd_panel_token') || '';
+  if (!token) return;
+  
+  google.script.run
+    .withSuccessHandler(readIdsArr => {
+      _notifReadIds = new Set(readIdsArr || []);
+      google.script.run
+        .withSuccessHandler(result => {
+          const data = result.data || result || [];
+          _notifItems = data.slice(0, 12);
+          _recalcBadge();
+        })
+        .withFailureHandler(() => {})
+        .apiGetSolicitudes(token, { pagina: 1, limite: 12, ordenar: 'fecha_desc' });
+    })
+    .withFailureHandler(() => {})
+    .apiGetNotificacionesLeidas(token);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//   CÓDIGO DE LA SECCIÓN DEDICADA A NOTIFICACIONES SPA
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Carga las notificaciones para la sección dedicada
+function cargarNotificacionesSeccion(force) {
+  const token = sessionStorage.getItem('hd_panel_token') || '';
+  if (!token) return;
+
+  const skeleton = document.getElementById('notificacionesSeccionSkeleton');
+  const content = document.getElementById('notificacionesSeccionContent');
+  if (skeleton) skeleton.style.display = 'block';
+  if (content) content.style.display = 'none';
+
+  // Obtener leídos de la BD
+  google.script.run
+    .withSuccessHandler(readIdsArr => {
+      _notifReadIds = new Set(readIdsArr || []);
+      
+      // Obtener solicitudes
+      google.script.run
+        .withSuccessHandler(result => {
+          if (skeleton) skeleton.style.display = 'none';
+          if (content) content.style.display = 'block';
+          
+          const data = result.data || result || [];
+          // Cargar las últimas 100
+          const items = data.slice(0, 100);
+          renderNotificacionesSeccion(items);
+        })
+        .withFailureHandler(() => {
+          if (skeleton) skeleton.style.display = 'none';
+          if (content) content.style.display = 'block';
+          renderNotificacionesSeccion([]);
+        })
+        .apiGetSolicitudes(token, { pagina: 1, limite: 100, ordenar: 'fecha_desc' });
+    })
+    .withFailureHandler(() => {
+      if (skeleton) skeleton.style.display = 'none';
+      if (content) content.style.display = 'block';
+      renderNotificacionesSeccion([]);
+    })
+    .apiGetNotificacionesLeidas(token);
+}
+
+// Renderiza el listado en la sección dedicada
+function renderNotificacionesSeccion(items) {
+  const list = document.getElementById('notifListSeccion');
+  const empty = document.getElementById('notifSeccionEmpty');
+  if (!list) return;
+
+  if (!items || items.length === 0) {
+    list.innerHTML = '';
+    if (empty) empty.style.display = 'block';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+
+  list.innerHTML = items.map(item => {
+    const isRead = _notifReadIds.has(item.uuid || item.codigo_solicitud || '');
+    const clsRead = isRead ? 'read' : 'unread';
+    const dotDisplay = isRead ? 'display:none;' : 'display:inline-block;';
+    
+    // Chip de estado interactivo (Leída / No leída)
+    const statusIndicator = isRead 
+      ? `<span class="notif-status-badge" onclick="toggleReadStatus(event, '${item.uuid || item.codigo_solicitud || ''}', this)" title="Marcar como no leída" style="font-size:11.5px; color:var(--muted); font-weight:normal; border:1px solid var(--border2); background:var(--surface2);">
+           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px; height:12px; color:var(--muted);">
+             <polyline points="20 6 9 17 4 12"/>
+           </svg>
+           Leída
+         </span>`
+      : `<span class="notif-status-badge" onclick="toggleReadStatus(event, '${item.uuid || item.codigo_solicitud || ''}', this)" title="Marcar como leída" style="font-size:11.5px; color:var(--gold); font-weight:700; border:1px solid rgba(206, 110, 41, 0.2); background:rgba(206, 110, 41, 0.05);">
+           <span style="width:6px; height:6px; border-radius:50%; background:var(--gold); display:inline-block; margin-right:4px;"></span>
+           Nueva
+         </span>`;
+
+    const titulo = escHtml(item.razon_social || item.empresa || 'Nueva solicitud');
+    const codigo = escHtml(item.codigo_solicitud || '');
+    const estado = escHtml(item.accion || 'PENDIENTE');
+    let displayEstado = estado.toUpperCase();
+    if (displayEstado === 'ACTIVO' || displayEstado === 'ACTIVA') {
+      displayEstado = 'APROBADA';
+    } else if (displayEstado.includes('PENDIENTE')) {
+      displayEstado = 'PENDIENTE';
+    }
+    const tiempo = _tiempoRelativo(item.fecha_envio || item.fecha || '');
+    const id     = escHtml(item.uuid || item.codigo_solicitud || '');
+
+    return `<li class="notif-item-card ${clsRead}" data-id="${id}" onclick="abrirExpedienteDesdeSeccion('${id}', this)">
+      <div style="display:flex; align-items:center; gap:12px; flex:1; min-width:0;">
+        <span class="notif-dot-seccion" style="width:8px; height:8px; border-radius:50%; background:var(--gold); flex-shrink:0; ${dotDisplay}"></span>
+        <div style="flex:1; min-width:0;">
+          <div style="font-size:14px; font-weight:600; color:var(--text); margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${titulo}</div>
+          <div style="font-size:12px; color:var(--muted);">${codigo} · <span class="badge ${displayEstado === 'APROBADA' ? 'badge-approved' : (displayEstado === 'PENDIENTE' ? 'badge-pending' : 'badge-rejected')}">${displayEstado}</span></div>
+        </div>
+      </div>
+      <div style="display:flex; align-items:center; gap:12px; margin-left:16px; flex-shrink:0;">
+        ${statusIndicator}
+        <span style="font-size:11px; color:var(--muted);">${tiempo}</span>
+      </div>
+    </li>`;
+  }).join('');
+}
+
+// Alterna el estado leída/no leída al hacer clic en el chip de estado
+function toggleReadStatus(event, id, btnEl) {
+  if (event) event.stopPropagation(); // Evita abrir el expediente
+  
+  const cardEl = btnEl.closest('.notif-item-card');
+  if (!cardEl) return;
+  
+  const isRead = cardEl.classList.contains('read');
+  const token = sessionStorage.getItem('hd_panel_token') || '';
+  
+  if (isRead) {
+    // Cambiar a UNREAD (No leída)
+    cardEl.classList.replace('read', 'unread');
+    _notifReadIds.delete(id);
+    
+    // Mostrar el punto de notificación
+    const dot = cardEl.querySelector('.notif-dot-seccion');
+    if (dot) dot.style.display = 'inline-block';
+    
+    // Cambiar chip a Nueva
+    btnEl.style.color = 'var(--gold)';
+    btnEl.style.fontWeight = '700';
+    btnEl.style.border = '1px solid rgba(206, 110, 41, 0.2)';
+    btnEl.style.background = 'rgba(206, 110, 41, 0.05)';
+    btnEl.setAttribute('title', 'Marcar como leída');
+    btnEl.innerHTML = `
+      <span style="width:6px; height:6px; border-radius:50%; background:var(--gold); display:inline-block; margin-right:4px;"></span>
+      Nueva
+    `;
+    
+    _recalcBadge();
+    
+    google.script.run
+      .withSuccessHandler(() => {
+        showToast('Notificación marcada como no leída.', 'info');
+      })
+      .withFailureHandler(err => {
+        console.error('Error al marcar como no leída: ' + err.message);
+      })
+      .apiMarcarNotificacionesUnread(token, [id]);
+      
+  } else {
+    // Cambiar a READ (Leída)
+    cardEl.classList.replace('unread', 'read');
+    _notifReadIds.add(id);
+    
+    // Ocultar el punto de notificación
+    const dot = cardEl.querySelector('.notif-dot-seccion');
+    if (dot) dot.style.display = 'none';
+    
+    // Cambiar chip a Leída
+    btnEl.style.color = 'var(--muted)';
+    btnEl.style.fontWeight = 'normal';
+    btnEl.style.border = '1px solid var(--border2)';
+    btnEl.style.background = 'var(--surface2)';
+    btnEl.setAttribute('title', 'Marcar como no leída');
+    btnEl.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px; height:12px; color:var(--muted);">
+        <polyline points="20 6 9 17 4 12"/>
+      </svg>
+      Leída
+    `;
+    
+    _recalcBadge();
+    
+    google.script.run
+      .withSuccessHandler(() => {
+        showToast('Notificación marcada como leída.', 'success');
+      })
+      .withFailureHandler(err => {
+        console.error('Error al marcar como leída: ' + err.message);
+      })
+      .apiMarcarNotificacionesLeidas(token, [id]);
+  }
+}
+
+// Abre un expediente desde la sección de notificaciones y la marca como leída
+function abrirExpedienteDesdeSeccion(id, el) {
+  _marcarUnaLeida(id);
+  if (el) {
+    el.classList.replace('unread', 'read');
+    const dot = el.querySelector('.notif-dot-seccion');
+    if (dot) dot.style.display = 'none';
+    
+    // Actualizar chip si existe
+    const chip = el.querySelector('.notif-status-badge');
+    if (chip) {
+      chip.style.color = 'var(--muted)';
+      chip.style.fontWeight = 'normal';
+      chip.style.border = '1px solid var(--border2)';
+      chip.style.background = 'var(--surface2)';
+      chip.setAttribute('title', 'Marcar como no leída');
+      chip.innerHTML = `
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px; height:12px; color:var(--muted);">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+        Leída
+      `;
+    }
+  }
+  if (typeof abrirExpediente === 'function') {
+    abrirExpediente(id);
+  }
+}
+
+// Marca todas como leídas en la sección de notificaciones
+function marcarTodasLeidasSeccion() {
+  const token = sessionStorage.getItem('hd_panel_token') || '';
+  const unreadUuids = _notifItems
+    .map(item => item.uuid || item.codigo_solicitud || '')
+    .filter(id => id && !_notifReadIds.has(id));
+    
+  if (unreadUuids.length === 0) return;
+  
+  unreadUuids.forEach(id => _notifReadIds.add(id));
+
+  // Actualizar dropdown
+  document.querySelectorAll('.notif-item.unread').forEach(el => {
+    el.classList.replace('unread', 'read');
+  });
+  
+  // Actualizar sección dedicada
+  document.querySelectorAll('.notif-item-card.unread').forEach(el => {
+    el.classList.replace('unread', 'read');
+    const dot = el.querySelector('.notif-dot-seccion');
+    if (dot) dot.style.display = 'none';
+    
+    // Actualizar chip si existe
+    const chip = el.querySelector('.notif-status-badge');
+    if (chip) {
+      chip.style.color = 'var(--muted)';
+      chip.style.fontWeight = 'normal';
+      chip.style.border = '1px solid var(--border2)';
+      chip.style.background = 'var(--surface2)';
+      chip.setAttribute('title', 'Marcar como no leída');
+      chip.innerHTML = `
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px; height:12px; color:var(--muted);">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+        Leída
+      `;
+    }
+  });
+  
+  _recalcBadge();
+  
+  google.script.run
+    .withSuccessHandler(() => {
+      showToast('Todas las notificaciones marcadas como leídas.', 'success');
+    })
+    .withFailureHandler(err => {
+      console.error('Error al marcar todas como leídas: ' + err.message);
+    })
+    .apiMarcarNotificacionesLeidas(token, unreadUuids);
+}
+</script>

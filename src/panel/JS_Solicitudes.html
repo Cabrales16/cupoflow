@@ -1,0 +1,385 @@
+<script>
+/* ─────────────────────────────────────────────────────────────────────────
+   JS_Solicitudes.html — Vista principal de solicitudes: tabla y filtros
+   CupoFlow · Panel de Control y Administración - Solicitud de Créditos
+   ───────────────────────────────────────────────────────────────────────── */
+
+// Estado de paginación server-side
+let _solPagina    = 1;
+let _solPorPagina = 100;
+let _solTotal     = 0;
+
+// ─── Carga ────────────────────────────────────────────────────────────────────
+
+/**
+ * Carga la lista de solicitudes desde el backend (página 1).
+ * @param {boolean} [force] - Si true, ignora el cache del servidor y recarga desde MySQL.
+ */
+function cargarSolicitudes(force) {
+  _solPagina = 1;
+  cargarCentrosFiltroSolicitudes();
+  _fetchSolicitudesPage_(force);
+}
+
+/**
+ * Envía la petición al backend con la página y filtros actuales.
+ * @param {boolean} [force] - Si true, bypasea el CacheService del backend.
+ */
+function _fetchSolicitudesPage_(force) {
+  const token = STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '';
+  actualizarVisibilidadBotonLimpiar();
+  hide('tablaSolicitudesWrap');
+  show('tablaSolicitudesSkeleton');
+  STATE.cargando = true;
+  showLoading();
+
+  const filtro = { pagina: _solPagina, limite: _solPorPagina };
+  if (STATE.filtroEstado)  filtro.estados = [STATE.filtroEstado];
+  if (STATE.busqueda)      filtro.busqueda = STATE.busqueda;
+  if (STATE.filtroTipo)    filtro.tipo = STATE.filtroTipo;
+  if (STATE.filtroPeriodo) filtro.periodo = STATE.filtroPeriodo;
+  if (STATE.filtroFilial)  filtro.filial = STATE.filtroFilial;
+  if (STATE.filtroCentro)   filtro.centro = STATE.filtroCentro;
+  if (force)               filtro._force   = true;
+
+  google.script.run
+    .withSuccessHandler(result => {
+      hideLoading();
+      STATE.cargando = false;
+      const data  = result.data  || [];
+      const total = result.total || 0;
+      _solTotal = total;
+      STATE.solicitudes = data;
+      renderTablaSolicitudes(data, total);
+    })
+    .withFailureHandler(err => {
+      hideLoading();
+      STATE.cargando = false;
+      hide('tablaSolicitudesSkeleton');
+      show('tablaSolicitudesWrap');
+      showToast('Error al cargar solicitudes: ' + err.message, 'error');
+    })
+    .apiGetSolicitudes(token, filtro);
+}
+
+// ─── Render ───────────────────────────────────────────────────────────────────
+
+/**
+ * Renderiza la tabla con los registros ya paginados que vienen del backend.
+ * @param {Array}  rows  - Página actual de objetos de solicitud.
+ * @param {number} total - Total de registros (sin paginar) para la barra.
+ */
+function renderTablaSolicitudes(rows, total) {
+  const tbody   = document.getElementById('solicitudesTableBody');
+  const emptyEl = document.getElementById('emptyState');
+  const countEl = document.getElementById('resultCount');
+  if (!tbody) return;
+
+  total = (total !== undefined ? total : _solTotal) || 0;
+
+  if (!rows || rows.length === 0) {
+    tbody.innerHTML = '';
+    if (emptyEl) emptyEl.classList.remove('hidden');
+    if (countEl) countEl.textContent = '0 registros';
+    const pagEl = document.getElementById('pagSolicitudes');
+    if (pagEl) pagEl.innerHTML = '';
+  } else {
+    if (emptyEl) emptyEl.classList.add('hidden');
+    tbody.innerHTML = rows.map(buildTableRow).join('');
+    if (countEl) countEl.textContent = total + ' registro' + (total !== 1 ? 's' : '');
+    renderBarraPaginacion('pagSolicitudes', total, _solPagina, _solPorPagina, 'irPaginaSolicitudes', 'cambiarSizeSolicitudes');
+  }
+
+  hide('tablaSolicitudesSkeleton');
+  show('tablaSolicitudesWrap');
+}
+
+function irPaginaSolicitudes(pagina) {
+  _solPagina = pagina;
+  _fetchSolicitudesPage_(false);
+}
+
+function cambiarSizeSolicitudes(size) {
+  _solPorPagina = size;
+  _solPagina    = 1;
+  _fetchSolicitudesPage_(false);
+}
+
+// ─── Filtros ──────────────────────────────────────────────────────────────────
+
+/**
+ * Disparado por el input de búsqueda (oninput).
+ */
+function filtrarSolicitudes() {
+  const input = document.getElementById('searchInput');
+  STATE.busqueda = input ? input.value.trim() : '';
+  _solPagina = 1;
+  _fetchSolicitudesPage_();
+}
+
+/**
+ * Activa un chip de filtro por estado y recarga la tabla.
+ * @param {HTMLElement} chip   - El elemento <button> del chip pulsado.
+ * @param {string}      estado - Estado a filtrar (vacío = todas).
+ */
+function setFiltroEstado(chip, estado) {
+  document.querySelectorAll('.filter-chips .chip').forEach(c => c.classList.remove('active'));
+  chip.classList.add('active');
+  STATE.filtroEstado = estado;
+  _solPagina = 1;
+  _fetchSolicitudesPage_();
+}
+
+/**
+ * Filtro por tipo de solicitud (Nueva, Ampliación, etc.)
+ */
+function cambiarTipoSolicitudes(tipo) {
+  STATE.filtroTipo = tipo;
+  _solPagina = 1;
+  _fetchSolicitudesPage_();
+}
+
+/**
+ * Filtro por rango de período rápido.
+ */
+function cambiarPeriodoSolicitudes(val) {
+  const customDiv = document.getElementById('solCustomDates');
+  if (val === 'CUSTOM') {
+    if (customDiv) customDiv.style.display = 'inline-flex';
+  } else {
+    if (customDiv) customDiv.style.display = 'none';
+    STATE.filtroPeriodo = { type: val };
+    _solPagina = 1;
+    _fetchSolicitudesPage_();
+  }
+}
+
+/**
+ * Filtro por rango de fechas personalizadas.
+ */
+function aplicarFechasPersonalizadasSolicitudes() {
+  const inicio = document.getElementById('solFechaInicio').value;
+  const fin = document.getElementById('solFechaFin').value;
+  
+  if (inicio && fin) {
+    if (new Date(inicio) > new Date(fin)) {
+      showToast('La fecha de inicio no puede ser posterior a la fecha de fin', 'error');
+      return;
+    }
+    STATE.filtroPeriodo = {
+      type: 'CUSTOM',
+      inicio: inicio,
+      fin: fin
+    };
+    _solPagina = 1;
+    _fetchSolicitudesPage_();
+  }
+}
+
+/**
+ * Filtro por Filial (SI/NO).
+ */
+function cambiarFilialSolicitudes(val) {
+  STATE.filtroFilial = val;
+  _solPagina = 1;
+  _fetchSolicitudesPage_();
+}
+
+/**
+ * Filtro por Centro.
+ */
+function cambiarCentroSolicitudes(val) {
+  STATE.filtroCentro = val;
+  _solPagina = 1;
+  _fetchSolicitudesPage_();
+}
+
+/**
+ * Carga la lista de centros disponibles y puebla el select de filtros.
+ */
+function cargarCentrosFiltroSolicitudes() {
+  const token = STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '';
+  const _renderOptions = (centros) => {
+    const sel = document.getElementById('filtroSolicitudCentro');
+    if (!sel) return;
+    const current = sel.value;
+    sel.innerHTML = '<option value="">Todos los centros</option>';
+    const items = (centros || []).map(h => ({ code: h, text: getCentroRazon(h) || h }));
+    items.sort((a, b) => a.text.localeCompare(b.text, 'es', { sensitivity: 'base' }));
+    items.forEach(item => {
+      const opt = document.createElement('option');
+      opt.value = item.code;
+      opt.textContent = item.text;
+      if (item.code === current) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  };
+
+  if (window._cachedCentrosFiltroSol && window._cachedCentrosFiltroSol.length > 0) {
+    _renderOptions(window._cachedCentrosFiltroSol);
+    return;
+  }
+
+  google.script.run
+    .withSuccessHandler(centros => {
+      window._cachedCentrosFiltroSol = centros || [];
+      _renderOptions(window._cachedCentrosFiltroSol);
+    })
+    .withFailureHandler(() => {})
+    .apiGetCentrosEnCreditos(token);
+}
+
+/**
+ * Limpia todos los filtros y recarga la tabla a su estado inicial.
+ */
+function limpiarFiltrosSolicitudes() {
+  STATE.busqueda = '';
+  STATE.filtroEstado = '';
+  STATE.filtroTipo = '';
+  STATE.filtroPeriodo = null;
+  STATE.filtroFilial = '';
+  STATE.filtroCentro = '';
+
+  const searchInput = document.getElementById('searchInput');
+  if (searchInput) searchInput.value = '';
+
+  const periodSel = document.getElementById('filtroSolicitudPeriodo');
+  if (periodSel) periodSel.value = 'ALL';
+
+  const typeSel = document.getElementById('filtroSolicitudTipo');
+  if (typeSel) typeSel.value = '';
+
+  const filialSel = document.getElementById('filtroSolicitudFilial');
+  if (filialSel) filialSel.value = '';
+
+  const centroSel = document.getElementById('filtroSolicitudCentro');
+  if (centroSel) centroSel.value = '';
+
+  const initDate = document.getElementById('solFechaInicio');
+  if (initDate) initDate.value = '';
+
+  const finDate = document.getElementById('solFechaFin');
+  if (finDate) finDate.value = '';
+
+  const customDiv = document.getElementById('solCustomDates');
+  if (customDiv) customDiv.style.display = 'none';
+
+  document.querySelectorAll('.filter-chips .chip').forEach(c => {
+    if (c.getAttribute('data-estado') === '') {
+      c.classList.add('active');
+    } else {
+      c.classList.remove('active');
+    }
+  });
+
+  _solPagina = 1;
+  _fetchSolicitudesPage_();
+}
+
+/**
+ * Muestra u oculta el botón de limpiar filtros (bote de basura) según si hay filtros aplicados.
+ */
+function actualizarVisibilidadBotonLimpiar() {
+  const btn = document.getElementById('btnLimpiarFiltrosSolicitudes');
+  if (!btn) return;
+
+  const tieneFiltros =
+    (STATE.busqueda && STATE.busqueda.trim() !== '') ||
+    (STATE.filtroEstado && STATE.filtroEstado !== '') ||
+    (STATE.filtroTipo && STATE.filtroTipo !== '') ||
+    (STATE.filtroPeriodo && STATE.filtroPeriodo.type !== 'ALL') ||
+    (STATE.filtroFilial && STATE.filtroFilial !== '') ||
+    (STATE.filtroCentro && STATE.filtroCentro !== '');
+
+  btn.style.display = tieneFiltros ? 'inline-flex' : 'none';
+}
+
+// ─── Exportación ──────────────────────────────────────────────────────────────
+
+function toggleExportSolicitudesDropdown(event) {
+  if (event) event.stopPropagation();
+  const dropdown = document.getElementById('solExportDropdown');
+  if (dropdown) dropdown.classList.toggle('show');
+}
+
+// Cerrar dropdown si se hace click fuera
+document.addEventListener('click', () => {
+  const dropdown = document.getElementById('solExportDropdown');
+  if (dropdown) dropdown.classList.remove('show');
+});
+
+function exportarSolicitudesExcel(event) {
+  if (event) event.preventDefault();
+  const token = STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '';
+  const dropdown = document.getElementById('solExportDropdown');
+  if (dropdown) dropdown.classList.remove('show');
+
+  showLoading();
+  const filtro = {};
+  if (STATE.filtroEstado)  filtro.estados = [STATE.filtroEstado];
+  if (STATE.busqueda)      filtro.busqueda = STATE.busqueda;
+  if (STATE.filtroTipo)    filtro.tipo = STATE.filtroTipo;
+  if (STATE.filtroPeriodo) filtro.periodo = STATE.filtroPeriodo;
+  if (STATE.filtroFilial)  filtro.filial = STATE.filtroFilial;
+  if (STATE.filtroCentro)   filtro.centro = STATE.filtroCentro;
+
+  google.script.run
+    .withSuccessHandler(res => {
+      hideLoading();
+      if (res && res.ok && res.url) {
+        window.open(res.url, '_blank');
+        showToast('Listado Excel generado y descargado correctamente', 'success');
+      } else {
+        showToast('Error al exportar a Excel: URL inválida', 'error');
+      }
+    })
+    .withFailureHandler(err => {
+      hideLoading();
+      showToast('Error al exportar a Excel: ' + err.message, 'error');
+    })
+    .apiExportarSolicitudesExcel(token, filtro);
+}
+
+function exportarSolicitudesCSV(event) {
+  if (event) event.preventDefault();
+  const token = STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '';
+  const dropdown = document.getElementById('solExportDropdown');
+  if (dropdown) dropdown.classList.remove('show');
+
+  showLoading();
+  const filtro = {};
+  if (STATE.filtroEstado)  filtro.estados = [STATE.filtroEstado];
+  if (STATE.busqueda)      filtro.busqueda = STATE.busqueda;
+  if (STATE.filtroTipo)    filtro.tipo = STATE.filtroTipo;
+  if (STATE.filtroPeriodo) filtro.periodo = STATE.filtroPeriodo;
+  if (STATE.filtroFilial)  filtro.filial = STATE.filtroFilial;
+  if (STATE.filtroCentro)   filtro.centro = STATE.filtroCentro;
+
+  google.script.run
+    .withSuccessHandler(csvData => {
+      hideLoading();
+      if (csvData) {
+        const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a");
+        const d = new Date();
+        const dateStr = d.getFullYear() +
+          String(d.getMonth() + 1).padStart(2, '0') +
+          String(d.getDate()).padStart(2, '0') + '_' +
+          String(d.getHours()).padStart(2, '0') +
+          String(d.getMinutes()).padStart(2, '0') +
+          String(d.getSeconds()).padStart(2, '0');
+        link.href = URL.createObjectURL(blob);
+        link.setAttribute("download", "Cuadra_Export_Solicitudes_" + dateStr + ".csv");
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        showToast('Reporte CSV descargado correctamente', 'success');
+      }
+    })
+    .withFailureHandler(err => {
+      hideLoading();
+      showToast('Error al exportar a CSV: ' + err.message, 'error');
+    })
+    .apiExportarSolicitudesCSV(token, filtro);
+}
+</script>

@@ -1,0 +1,857 @@
+<script>
+/* Submit.html */
+
+const CHUNK_SIZE_BYTES = 256 * 1024; // 200 KB
+/* ═══════════════════════════════════════
+   buildSummary — paso 5
+═══════════════════════════════════════ */
+function buildSummary() {
+  const card = $('summaryCard');
+  if (!card) return;
+
+  const v = id => _escHtml_(($(id) || {}).value || '');
+
+  const tipoNombre = 'Empresa / Persona Jurídica';
+
+  const centrosStr = STATE.selectedCentros.length
+    ? _escHtml_(STATE.selectedCentros.map(h => h.nombre).join(', '))
+    : '—';
+
+  const tipoSolCard  = document.querySelector('#tipoSolicitudGrid .tipo-card.selected');
+  const tipoSolLabel = tipoSolCard
+    ? _escHtml_((tipoSolCard.querySelector('.tipo-info strong') || {}).textContent || '—')
+    : '—';
+
+  const montoRaw = v('monto').replace(/\./g, '').replace(',', '.');
+  const montoNum = parseFloat(montoRaw) || 0;
+  const monedaVal = v('moneda') || 'COP';
+  const montoStr  = montoNum ? monedaVal + ' ' + fmt(montoNum) : '—';
+
+  const docsObligAdj = DOCS_REQUERIDOS_FIJOS.filter(doc =>
+    doc.codigo === 'ESTADOS_FIN'
+      ? (STATE.filesMultiByCode['ESTADOS_FIN'] || []).length > 0
+      : !!STATE.filesByCode[doc.codigo]
+  ).length;
+  const docsOpcAdj = Object.keys(STATE.filesByCode).filter(c =>
+    !DOCS_REQUERIDOS_FIJOS.find(d => d.codigo === c)
+  ).length + Object.keys(STATE.filesMultiByCode).filter(c =>
+    c !== 'ESTADOS_FIN'
+  ).reduce((acc, c) => acc + (STATE.filesMultiByCode[c] || []).length, 0);
+  const docsReq = DOCS_REQUERIDOS_FIJOS.length;
+
+  card.innerHTML = `
+    <div class="sum-section">
+      <div class="sum-section-title">Solicitud</div>
+      <div class="sum-grid">
+        <div class="sum-item" style="grid-column:1/-1"><span class="sum-k">TIPO</span><span class="sum-v">${tipoSolLabel}</span></div>
+        <div class="sum-item" style="grid-column: 1 / -1"><span class="sum-k">CENTROS</span><span class="sum-v" title="${centrosStr}">${centrosStr}</span></div>
+        <div class="sum-item"><span class="sum-k">SOLICITANTE</span><span class="sum-v">${tipoNombre}</span></div>
+        ${($('es_filial') && $('es_filial').checked) ? `<div class="sum-item" style="grid-column: 1 / -1"><span class="sum-k">FILIAL</span><span class="sum-v">${v('filial_razon_social')} (NIT: ${v('filial_nit')})</span></div>` : ''}
+      </div>
+    </div>
+    <div class="sum-section">
+      <div class="sum-section-title">Empresa</div>
+      <div class="sum-grid">
+        <div class="sum-item"><span class="sum-k">RAZÓN SOCIAL</span><span class="sum-v">${v('razon_social') || '—'}</span></div>
+        <div class="sum-item"><span class="sum-k">NIT</span><span class="sum-v">${v('nit') || '—'}</span></div>
+        <div class="sum-item"><span class="sum-k">REPRESENTANTE</span><span class="sum-v">${v('nombre_rep_legal') || '—'}</span></div>
+        <div class="sum-item"><span class="sum-k">CORREO</span><span class="sum-v">${v('correo_rep') || '—'}</span></div>
+        <div class="sum-item"><span class="sum-k">EJECUTIVO</span><span class="sum-v">${v('ejecutivo_cuenta') || '—'}</span></div>
+        <div class="sum-item"><span class="sum-k">FECHA</span><span class="sum-v">${today()}</span></div>
+      </div>
+    </div>
+    <div class="sum-section">
+      <div class="sum-section-title">Documentos</div>
+      <div class="sum-grid">
+        <div class="sum-item" style="grid-column:1/-1">
+          <span class="sum-k">ADJUNTADOS</span>
+          <span class="sum-v">
+            ${docsObligAdj} de ${docsReq} obligatorios
+            ${docsOpcAdj > 0 ? '+ ' + docsOpcAdj + ' adicional' + (docsOpcAdj > 1 ? 'es' : '') : ''}
+          </span>
+        </div>
+      </div>
+    </div>
+    <div class="sum-section" style="border-top:1px dashed var(--border2); padding-top:12px; margin-top:8px;">
+      <div class="sum-grid">
+        <div class="sum-item" style="grid-column:1/-1">
+          <span class="sum-k">VERIFICACIÓN</span>
+          <span class="sum-v" id="sum-verify-status">
+            ${STATE.emailVerified ? '<span style="color:#27ae60">● Verificado vía email</span>' : '<span style="color:#e67e22">● Pendiente de verificación</span>'}
+          </span>
+        </div>
+      </div>
+    </div>`;
+
+  // Update display email in step 5
+  const displayEmail = $('display-correo-rep');
+  if (displayEmail) displayEmail.textContent = v('correo_rep') || '—';
+}
+
+/* ═══════════════════════════════════════
+   uploadFileChunks
+═══════════════════════════════════════ */
+async function uploadFileChunks(code, file, docsFolderId) {
+  const initRes = await new Promise((resolve, reject) =>
+    google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler(reject)
+      .apiInitUploadDocumento({
+        uuid:           STATE.submissionUuid,
+        tipo_documento: code,
+        docs_folder_id: docsFolderId,
+        nombre_archivo: file.name,
+        mime:           'application/pdf'
+      })
+  );
+
+  const uploadKey   = initRes.upload_key;
+  const total       = file.size;
+  const totalChunks = Math.ceil(total / CHUNK_SIZE_BYTES);
+
+  for (let i = 0; i < totalChunks; i++) {
+    const start  = i * CHUNK_SIZE_BYTES;
+    const end    = Math.min(start + CHUNK_SIZE_BYTES, total) - 1;
+    const slice  = file.slice(start, end + 1);
+
+    const base64 = await new Promise((res, rej) => {
+      const reader = new FileReader();
+      reader.onload  = () => res(reader.result.split(',')[1]);
+      reader.onerror = () => rej(new Error('No se pudo procesar el archivo: ' + file.name + '. Verifica que sea un PDF válido.'));
+      reader.readAsDataURL(slice);
+    });
+
+    const chunkRes = await new Promise((resolve, reject) =>
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(reject)
+        .apiUploadChunk({ upload_key: uploadKey, chunk_base64: base64, start, end, total, mime: 'application/pdf' })
+    );
+
+    if (chunkRes.done) {
+          await new Promise((resolve, reject) =>
+            google.script.run
+              .withSuccessHandler(resolve)
+              .withFailureHandler(reject)
+              .apiRegistrarDocumentoEnCola({
+                uuid:           STATE.submissionUuid,
+                tipo_documento: code,
+                drive_file_id:  chunkRes.drive_file_id,
+                nombre_archivo: file.name,
+                tamano_bytes:   file.size,
+                hash_sha256:    '',
+                fecha_subida:   new Date().toISOString()
+              })
+          );
+          break;
+        }
+      }
+}
+
+/* ═══════════════════════════════════════
+   Email Verification
+   ═══════════════════════════════════════ */
+async function sendVerificationCode() {
+  const email = ($('correo_rep') || {}).value || '';
+  if (!email) {
+    showValidationModal('No se encontró el correo del representante legal. Por favor verifica el Paso 2.');
+    return;
+  }
+
+  const btn = $('btnSendVerification');
+  const resendBtn = $('btnResendCode');
+  if (btn) btn.disabled = true;
+  if (resendBtn) resendBtn.style.display = 'none';
+  
+  const statusEl = $('verification-status');
+  if (statusEl) {
+    statusEl.className = '';
+    statusEl.textContent = 'Enviando código...';
+    statusEl.style.display = 'block';
+  }
+
+  try {
+    await new Promise((resolve, reject) => {
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(reject)
+        .apiSendVerificationCode(email);
+    });
+
+    $('verify-initial-row').style.display = 'none';
+    $('verify-input-row').style.display = 'block';
+    
+    if (statusEl) {
+      statusEl.className = 'success';
+      statusEl.textContent = 'Código enviado. Revisa tu bandeja de entrada.';
+    }
+    
+    setTimeout(() => {
+      if (resendBtn) resendBtn.style.display = 'block';
+    }, 30000);
+
+  } catch (err) {
+    if (btn) btn.disabled = false;
+    if (statusEl) {
+      statusEl.className = 'error';
+      statusEl.textContent = 'Error al enviar: ' + getFriendlyErrorMessage(err);
+    }
+  }
+}
+
+async function verifyCode() {
+  const code = ($('verification_code') || {}).value.trim().toUpperCase();
+  const email = ($('correo_rep') || {}).value || '';
+  const btn = $('btnVerifyCode');
+  const statusEl = $('verification-status');
+
+  if (code.length < 6) {
+    if (statusEl) {
+      statusEl.className = 'error';
+      statusEl.textContent = 'El código debe tener 6 caracteres.';
+      statusEl.style.display = 'block';
+    }
+    return;
+  }
+
+  if (btn) btn.disabled = true;
+  if (statusEl) {
+    statusEl.className = '';
+    statusEl.textContent = 'Validando...';
+    statusEl.style.display = 'block';
+  }
+
+  try {
+    const isOk = await new Promise((resolve, reject) => {
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(reject)
+        .apiVerifyCode(email, code);
+    });
+
+    if (isOk) {
+      STATE.emailVerified = true;
+      
+      const verifyStatusEl = $('sum-verify-status');
+      if (verifyStatusEl) {
+        verifyStatusEl.innerHTML = '<span style="color:#27ae60">● Verificado vía email</span>';
+      }
+      
+      // Rediseño de éxito compacto
+      const body = document.querySelector('.v-card-body');
+      body.innerHTML = `
+        <div style="text-align:center; padding:10px 0;">
+          <div class="verification-success-icon" style="width:40px; height:40px; background:#1e7e44; color:#fff; border-radius:50%; display:flex; align-items:center; justify-content:center; margin:0 auto 10px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" style="width:20px;"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <h4 style="color:#1e7e44; margin:0; font-size:15px; font-weight:800;">Identidad Verificada</h4>
+          <p style="color:#496b66; font-size:12px; margin-top:4px;">Código validado correctamente. Puedes enviar la solicitud.</p>
+        </div>
+      `;
+      
+      const btnSubmit = $('btnSubmit');
+      if (btnSubmit) {
+        btnSubmit.disabled = false;
+        btnSubmit.classList.remove('btn-disabled');
+      }
+    } else {
+      if (btn) btn.disabled = false;
+      if (statusEl) {
+        statusEl.className = 'error';
+        statusEl.textContent = 'Código incorrecto. Inténtalo de nuevo.';
+      }
+    }
+  } catch (err) {
+    if (btn) btn.disabled = false;
+    if (statusEl) {
+      statusEl.className = 'error';
+      statusEl.textContent = 'Error al validar: ' + getFriendlyErrorMessage(err);
+    }
+  }
+}
+
+
+
+/* ═══════════════════════════════════════
+   submitForm
+═══════════════════════════════════════ */
+async function submitForm() {
+  if (STATE.submitting) return;
+  if (!($('acepta') || {}).checked) {
+    showValidationModal('Debes aceptar los <strong>términos y condiciones</strong> para continuar.');
+    return;
+  }
+  if (!STATE.emailVerified) {
+    showValidationModal('Debes <strong>verificar tu correo electrónico</strong> con el código de 6 dígitos antes de enviar.');
+    return;
+  }
+
+  STATE.submitting = true;
+  const btnSubmit = $('btnSubmit');
+  if (btnSubmit) btnSubmit.disabled = true;
+
+  const modal    = $('uploadModal');
+  const btnClose = $('btnModalClose');
+  if (modal)    { modal.setAttribute('aria-hidden', 'false'); modal.classList.remove('hidden'); lockScroll(); }
+  if (btnClose) btnClose.disabled = true;
+
+  setMeter(5, 'Procesando solicitud…');
+
+  try {
+    const v = id => ($(id) || {}).value || '';
+
+    const montoStr = v('monto').replace(/\./g, '').replace(',', '.');
+    const montoNum = parseFloat(montoStr) || 0;
+
+    const inscrEl    = document.querySelector('input[name="fact_inscripcion"]:checked');
+    const inscripcion = inscrEl ? inscrEl.value : 'NO';
+
+    const refs = getRefsData();
+
+    const fiscal = _buildFiscalValue_();
+
+    const centroCodigo = STATE.selectedCentros.map(h => h.codigo).join(',');
+    const primaryCentro = STATE.selectedCentros.length ? STATE.selectedCentros[0].codigo : '';
+
+    const payload = {
+      tipo_solicitud:         v('tipo_solicitud'),
+      centro_codigo:           centroCodigo,          // todos los centros, no solo primaryCentro
+      razon_social:           v('razon_social'),
+      nombre_comercial:       v('nombre_comercial'),
+      identificacion:         v('nit'),
+      direccion:              v('direccion'),
+      ciudad:                 v('ciudad'),
+      departamento:           v('departamento'),
+      cod_postal:             v('cod_postal'),
+      nombre_rep_legal:       v('nombre_rep_legal'),
+      tipo_id_rep:            v('tipo_id_rep'),
+      num_id_rep:             v('num_id_rep'),
+      cargo_rep:              v('cargo_rep'),
+      tel_rep:                v('tel_rep'),
+      correo_rep:             v('correo_rep'),
+      responsabilidad_fiscal: fiscal,
+      monto:                  montoNum,
+      moneda:                 v('moneda') || 'COP',
+      ejecutivo_cuenta:       v('ejecutivo_cuenta'),
+      fecha_diligenciamiento: today(),
+      contactos_json: JSON.stringify([
+        { area:'Tesorería',           nombre:v('cont_tes_nombre'), tel:v('cont_tes_tel'),  email:v('cont_tes_email')  },
+        { area:'Cuentas por pagar',   nombre:v('cont_cp_nombre'),  tel:v('cont_cp_tel'),   email:v('cont_cp_email')   },
+        { area:'Director Financiero', nombre:v('cont_df_nombre'),  tel:v('cont_df_tel'),   email:v('cont_df_email')   },
+        { area:'Comercial',           nombre:v('cont_com_nombre'), tel:v('cont_com_tel'),  email:v('cont_com_email')  }
+      ]),
+      fact_fecha_corte:   v('fact_fecha_corte'),
+      fact_fecha_expedicion_cert: v('docVigDate_CERT_EXISTENCIA'),
+      fact_fecha_expedicion_carta: v('docVigDate_CARTA_SIN_EEFF'),
+      fact_email_cc:      v('fact_email_cc'),
+      fact_inscripcion:   inscripcion,
+      fact_docs_req:      v('fact_docs_req'),
+      fact_email:         v('fact_email'),
+      refs_otros_centros: refs.length ? 'SI' : 'NO',
+      referencias_json:   JSON.stringify(refs),
+      comentarios:        ($('es_filial') && $('es_filial').checked) ? (`[Filial: ${v('filial_razon_social')} - NIT: ${v('filial_nit')}]\n` + ($('observaciones') ? $('observaciones').value.trim() : '')) : ($('observaciones') ? $('observaciones').value.trim() : ''),
+      es_filial:          ($('es_filial') && $('es_filial').checked) ? 'SI' : 'NO',
+      ip_dispositivo:     STATE.ip_dispositivo || ''
+    };
+
+    setMeter(10, 'Registrando solicitud…');
+    const startRes = await new Promise((resolve, reject) =>
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(reject)
+        .apiStartSubmission(payload)
+    );
+
+    STATE.submissionUuid  = startRes.uuid;
+    STATE.codigoSolicitud = startRes.codigo_solicitud;
+    STATE.carpetaDriveId  = startRes.carpeta_drive_id;
+    const docsFolderId    = startRes.docs_folder_id;
+    const carpetaRaizId   = startRes.carpeta_drive_id;
+    // carpetaRaizId: carpetaRaizId
+    // startRes completo: JSON.stringify(startRes)
+
+
+
+    const allUploads = [];
+
+    // Archivos individuales (todos excepto los multi)
+    Object.keys(STATE.filesByCode).forEach(code => {
+      allUploads.push({ code, file: STATE.filesByCode[code] });
+    });
+
+    // Multi-archivos (ESTADOS_FIN y cualquier otro futuro)
+    Object.keys(STATE.filesMultiByCode).forEach(code => {
+      (STATE.filesMultiByCode[code] || []).forEach(file => {
+        allUploads.push({ code, file });
+      });
+    });
+
+    for (let i = 0; i < allUploads.length; i++) {
+      const { code, file } = allUploads[i];
+      const pct = 15 + Math.round(((i + 1) / allUploads.length) * 70);
+      setMeter(pct, `Subiendo archivo ${i + 1} de ${allUploads.length}…`);
+      await uploadFileChunks(code, file, docsFolderId);
+    }
+
+    setMeter(86, 'Generando formato PDF…');
+    try {
+      await _generarPdfFormularioClienteSide_();
+    } catch (pdfErr) {
+      console.warn('[PDF] Generación client-side falló, el servidor generará el PDF:', pdfErr && pdfErr.message || pdfErr);
+    }
+    setMeter(93, 'Finalizando…');
+    await new Promise((resolve, reject) =>
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(reject)
+        .apiFinalizarSolicitud({
+          uuid:               STATE.submissionUuid,
+          codigo_solicitud:   STATE.codigoSolicitud,
+          acepta_condiciones: 'TRUE',
+          acepta_datos:       'TRUE',
+          ip_dispositivo:     STATE.ip_dispositivo || ''
+        })
+    );
+
+    setMeter(100, '¡Solicitud enviada con éxito!');
+    STATE.submitted = true;
+    const btnDraft = $('btnGuardarBorrador');
+    if (btnDraft) btnDraft.style.display = 'none';
+
+    const mTitle = modal && modal.querySelector('.modal-title');
+    const mSub   = modal && modal.querySelector('.modal-sub');
+    if (mTitle) mTitle.textContent = '¡Solicitud enviada!';
+    if (mSub)   mSub.innerHTML    =
+      `Código: <strong>${STATE.codigoSolicitud}</strong><br>Recibirás respuesta por correo electrónico.`;
+    if (btnClose) { btnClose.disabled = false; btnClose.textContent = 'Cerrar'; }
+    draftClear();
+
+  } catch (err) {
+    STATE.submitting = false;
+    if (modal)     { modal.classList.add('hidden'); unlockScroll(); }
+    if (btnSubmit) btnSubmit.disabled = false;
+    if (btnClose)  btnClose.disabled  = false;
+    showValidationModal(
+      'Ocurrió un error al enviar la solicitud:<br><br>' +
+      '<strong>' + getFriendlyErrorMessage(err) + '</strong><br><br>' +
+      'Intenta nuevamente. Si el error persiste, contacta al área de créditos.',
+      'Inconveniente al enviar'
+    );
+  }
+}
+
+/* ════════════════════════════════════════════════════════════
+   Generación de PDF del formulario (client-side / html2canvas)
+   Mismo enfoque que la carta de aprobación en el Panel
+   ════════════════════════════════════════════════════════════ */
+function _escHtml_(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
+ * Construye el valor a guardar en responsabilidad_fiscal a partir de los checkboxes
+ * marcados. Si se marcó "Otro", codifica el texto libre como "OTRO:<texto>" (sin comas,
+ * ya que la coma es el separador entre códigos) en vez del código plano "OTRO".
+ */
+function _buildFiscalValue_() {
+  const otroTexto = (($('fiscalOtroTexto') || {}).value || '').trim().replace(/,/g, ' ');
+  return Array.from(document.querySelectorAll('.fiscal-check:checked'))
+    .map(c => (c.value === 'OTRO' && otroTexto) ? ('OTRO:' + otroTexto) : c.value)
+    .join(',');
+}
+
+function _buildFormularioPdfHtml_(data, centros, logoB64) {
+  const logoHtml = logoB64
+    ? '<img src="data:image/png;base64,' + logoB64 + '" style="height:36px;display:block;">'
+    : ('<span style="font-size:22pt;font-weight:400;color:#ffffff;letter-spacing:0.5px;' +
+       'font-family:Century Gothic,Trebuchet MS,Arial,sans-serif;line-height:1.1;">' +
+       'demo<span style="color:#d08b43;">H</span>otel</span><br>' +
+       '<span style="font-size:6pt;font-weight:400;color:#9edbca;letter-spacing:2px;font-family:Arial,sans-serif;">' +
+       'HOSPITALITY MANAGEMENT GROUP</span>');
+
+  const taglineHtml =
+    '<span style="font-size:9pt;font-style:italic;color:#d08b43;font-family:Calibri,Arial,sans-serif;letter-spacing:0.2px;line-height:1.4;">' +
+    'Destinos únicos,<br>experiencias inolvidables</span>';
+
+  const headerHtml =
+    '<div style="background:#3c796c;border-bottom:5px solid #d08b43;width:100%;">' +
+    '<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#3c796c;">' +
+    '<tr>' +
+    '<td style="width:220px;padding:16px 18px 5px 30px;vertical-align:middle;border-right:1px solid #598d82;background:#3c796c;">' + logoHtml + '</td>' +
+    '<td style="padding:16px 30px 5px 18px;text-align:right;vertical-align:top;background:#3c796c;">' +
+    '<span style="font-size:9.5pt;font-weight:bold;color:#ffffff;font-family:Arial,sans-serif;">SOLICITUD DE CRÉDITO A COMPAÑÍAS</span><br>' +
+    '<span style="font-size:7.5pt;color:#afe1d5;font-family:Arial,sans-serif;">OX-F-GFI-18 &nbsp;|&nbsp; Rev.21 &nbsp;|&nbsp; Gestión Financiera</span>' +
+    '</td></tr>' +
+    '<tr>' +
+    '<td style="width:220px;padding:0 18px 14px 30px;font-size:7.5pt;color:#afe1d5;border-right:1px solid #598d82;background:#3c796c;font-family:Arial,sans-serif;">www.example.com</td>' +
+    '<td style="padding:0 30px 14px 18px;font-size:7.5pt;color:#afe1d5;text-align:right;background:#3c796c;font-family:Arial,sans-serif;">CALLE 00 # 00-00, Ciudad, País</td>' +
+    '</tr></table></div>';
+
+  function buildFooterHtml(pageNum, totalPages) {
+    return '<div style="background:#3c796c;border-top:5px solid #d08b43;position:absolute;bottom:0;left:0;right:0;">' +
+      '<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#3c796c;">' +
+      '<tr>' +
+      '<td style="width:220px;padding:8px 18px 3px 30px;vertical-align:middle;border-right:1px solid #598d82;background:#3c796c;">' + taglineHtml + '</td>' +
+      '<td style="padding:10px 30px 3px 18px;text-align:right;vertical-align:top;background:#3c796c;">' +
+      '<span style="font-size:9pt;font-weight:bold;color:#ffffff;font-family:Arial,sans-serif;">Area de crédito y cartera</span>' +
+      (pageNum ? '<span style="font-size:7.5pt;color:#afe1d5;font-family:Arial,sans-serif;margin-left:14px;">Pág. ' + pageNum + ' de ' + totalPages + '</span>' : '') +
+      '</td></tr>' +
+      '<tr>' +
+      '<td style="width:220px;padding:0 18px 10px 30px;font-size:7.5pt;color:#afe1d5;border-right:1px solid #598d82;background:#3c796c;font-family:Arial,sans-serif;">www.example.com</td>' +
+      '<td style="padding:0 30px 10px 18px;font-size:7.5pt;color:#afe1d5;text-align:right;background:#3c796c;font-family:Arial,sans-serif;">CALLE 00 # 00-00, Ciudad, País</td>' +
+      '</tr></table></div>';
+  }
+
+  function sHdr(t) {
+    return '<div style="color:#194b3f;font-weight:bold;font-size:8.5pt;padding:4px 0 4px 10px;' +
+      'margin:10px 0 3px;border-left:4px solid #3c796c;letter-spacing:0.3px;font-family:Calibri,Arial,sans-serif;">' + t + '</div>';
+  }
+  function tdPair(lbl, val) {
+    return '<td style="border:1px solid #d8ebe7;padding:4px 8px;font-size:8.5pt;color:#194b3f;font-weight:bold;' +
+      'width:22%;background:#e8f0ee;font-family:Calibri,Arial,sans-serif;">' + lbl + '</td>' +
+      '<td style="border:1px solid #d8ebe7;padding:4px 8px;font-size:8.5pt;color:#1a1a1a;width:28%;font-family:Calibri,Arial,sans-serif;">' +
+      _escHtml_(val) + '</td>';
+  }
+
+  const thStyle = 'background:#3c796c;color:#fff;font-size:8pt;padding:6px 8px;border:none;text-align:left;font-family:Calibri,Arial,sans-serif;';
+  const tdS     = 'border:1px solid #d8ebe7;padding:3.5px 7px;font-size:8pt;font-family:Calibri,Arial,sans-serif;';
+  const evenRow = 'background:#f5faf9;';
+
+  const tipoMap = { NUEVA: 'Primera Vez', AMPLIACION: 'Aumento Monto', RENOVACION: 'Renovación', HOMOLOGACION: 'Homologación' };
+  const fiscalMap = [
+    ['0-13', 'Gran contribuyente'], ['0-15', 'Autorretenedor'],
+    ['0-23', 'Agente retención IVA'], ['0-47', 'Régimen simple de tributación'],
+    ['48', 'Impuesto sobre las ventas IVA'], ['R-99-PN', 'No responsable']
+  ];
+  const montoNum = parseFloat((data.monto || '').toString().replace(/\./g, '').replace(',', '.')) || 0;
+  const montoFmt = montoNum ? (data.moneda || 'COP') + ' ' + montoNum.toLocaleString('es-CO') : '—';
+  const tipoLabel = tipoMap[data.tipo_solicitud] || data.tipo_solicitud || '—';
+  const fiscalSel = (data.responsabilidad_fiscal || '').split(',').map(s => s.trim()).filter(Boolean);
+  const fiscalOtroEntry  = fiscalSel.find(s => s === 'OTRO' || s.indexOf('OTRO:') === 0);
+  const fiscalOtroTexto  = fiscalOtroEntry && fiscalOtroEntry.indexOf(':') > -1
+    ? fiscalOtroEntry.slice(fiscalOtroEntry.indexOf(':') + 1).trim()
+    : '';
+
+  const fiscalRows = fiscalMap.map(([cod, nom], i) =>
+    '<tr' + (i % 2 === 1 ? ' style="' + evenRow + '"' : '') + '>' +
+    '<td style="' + tdS + 'width:60px;">' + cod + '</td>' +
+    '<td style="' + tdS + '">' + nom + '</td>' +
+    '<td style="' + tdS + 'text-align:center;width:40px;font-weight:bold;color:#194b3f;">' +
+    (fiscalSel.includes(cod) ? '&#10003;' : '') + '</td></tr>'
+  ).join('') + (fiscalOtroEntry
+    ? '<tr' + (fiscalMap.length % 2 === 1 ? ' style="' + evenRow + '"' : '') + '>' +
+      '<td style="' + tdS + 'width:60px;">Otro</td>' +
+      '<td style="' + tdS + '">' + _escHtml_(fiscalOtroTexto || 'No especificado') + '</td>' +
+      '<td style="' + tdS + 'text-align:center;width:40px;font-weight:bold;color:#194b3f;">&#10003;</td></tr>'
+    : '');
+
+  const contactoAreas = ['Tesorería', 'Cuentas por pagar', 'Director Financiero', 'Comercial'];
+  const contactoRows = contactoAreas.map((area, i) => {
+    const c = (data.contactos || []).find(x => x.area === area) || {};
+    return '<tr' + (i % 2 === 1 ? ' style="' + evenRow + '"' : '') + '>' +
+      '<td style="' + tdS + '">' + _escHtml_(area) + '</td>' +
+      '<td style="' + tdS + '">' + _escHtml_(c.nombre || '') + '</td>' +
+      '<td style="' + tdS + '">' + _escHtml_(c.tel || '') + '</td>' +
+      '<td style="' + tdS + '">' + _escHtml_(c.email || '') + '</td></tr>';
+  }).join('');
+
+  // Generación de tabla de centros adaptable (1 columna para <=4 centros, 2 columnas para 5 o más)
+  const listaCentros = centros || [];
+  let centroTableHtml = '';
+
+  if (listaCentros.length <= 4) {
+    const centroRows = listaCentros.map((h, i) =>
+      '<tr' + (i % 2 === 1 ? ' style="' + evenRow + '"' : '') + '>' +
+      '<td style="' + tdS + 'width:22px;text-align:center;">' + (i + 1) + '.</td>' +
+      '<td style="' + tdS + '">' + _escHtml_((h.razon || h.nombre || h.codigo || '').toUpperCase()) + '</td>' +
+      '<td style="' + tdS + 'width:110px;text-align:right;">' + _escHtml_(h.nit || '') + '</td>' +
+      '<td style="' + tdS + 'width:28px;text-align:center;font-weight:bold;color:#194b3f;">&#10003;</td></tr>'
+    ).join('');
+
+    centroTableHtml =
+      '<table style="width:100%;border-collapse:collapse;"><thead><tr>' +
+      '<th style="width:24px;' + thStyle + '"></th>' +
+      '<th style="' + thStyle + '">RAZÓN SOCIAL / NOMBRE</th>' +
+      '<th style="width:115px;text-align:right;' + thStyle + '">NIT</th>' +
+      '<th style="width:30px;text-align:center;' + thStyle + '">&#10003;</th>' +
+      '</tr></thead><tbody>' + centroRows + '</tbody></table>';
+  } else {
+    const mid = Math.ceil(listaCentros.length / 2);
+    const col1 = listaCentros.slice(0, mid);
+    const col2 = listaCentros.slice(mid);
+
+    const tdCompact = 'border:1px solid #d8ebe7;padding:2.5px 5px;font-size:7.5pt;font-family:Calibri,Arial,sans-serif;';
+    const thCompact = 'background:#3c796c;color:#fff;font-size:7.5pt;padding:4px 6px;border:none;text-align:left;font-family:Calibri,Arial,sans-serif;';
+
+    const renderColTable = (items, startIdx) =>
+      '<table style="width:100%;border-collapse:collapse;"><thead><tr>' +
+      '<th style="width:18px;' + thCompact + '">#</th>' +
+      '<th style="' + thCompact + '">CENTRO</th>' +
+      '<th style="width:75px;text-align:right;' + thCompact + '">NIT</th>' +
+      '<th style="width:20px;text-align:center;' + thCompact + '">&#10003;</th>' +
+      '</tr></thead><tbody>' +
+      items.map((h, idx) =>
+        '<tr' + (idx % 2 === 1 ? ' style="' + evenRow + '"' : '') + '>' +
+        '<td style="' + tdCompact + 'text-align:center;">' + (startIdx + idx + 1) + '</td>' +
+        '<td style="' + tdCompact + 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:185px;">' + _escHtml_((h.nombre || h.razon || h.codigo || '').toUpperCase()) + '</td>' +
+        '<td style="' + tdCompact + 'text-align:right;">' + _escHtml_(h.nit || '') + '</td>' +
+        '<td style="' + tdCompact + 'text-align:center;font-weight:bold;color:#194b3f;">&#10003;</td></tr>'
+      ).join('') +
+      '</tbody></table>';
+
+    centroTableHtml =
+      '<table style="width:100%;border-collapse:collapse;table-layout:fixed;"><tr>' +
+      '<td style="width:50%;vertical-align:top;padding-right:4px;">' + renderColTable(col1, 0) + '</td>' +
+      '<td style="width:50%;vertical-align:top;padding-left:4px;">' + renderColTable(col2, mid) + '</td>' +
+      '</tr></table>';
+  }
+
+  const pgStyle = 'width:816px;height:1056px;position:relative;overflow:hidden;background:#fff;' +
+    'font-family:Calibri,Arial,sans-serif;font-size:9pt;color:#1a1a1a;-webkit-print-color-adjust:exact;print-color-adjust:exact;';
+  const contentStyle = 'padding:14px 42px 75px 42px;';
+
+  const secCentros =
+    '<p style="font-size:8.5pt;margin-bottom:6px;font-family:Calibri,Arial,sans-serif;line-height:1.4;">Indique a continuación el Centro con el que se desea adquirir el crédito:</p>' +
+    centroTableHtml +
+    '<div style="background:#fff3e6;border:2px solid #0e362f;padding:5px 10px;margin:8px 0 2px;font-size:7pt;' +
+    'font-weight:bold;text-align:center;color:#0e362f;font-family:Calibri,Arial,sans-serif;line-height:1.4;">' +
+    'NOTA: LA FACTURA SERÁ EMITIDA DIRECTAMENTE POR LA RAZÓN SOCIAL DEL CENTRO QUE REALICE LA PRESTACIÓN DEL SERVICIO</div>';
+
+  const secTipo =
+    sHdr('TIPO DE SOLICITUD') +
+    '<table style="width:100%;border-collapse:collapse;"><tr>' +
+    tdPair('Tipo solicitud', tipoLabel) + tdPair('Fecha diligenciamiento', data.fecha_diligenciamiento) + '</tr><tr>' +
+    '<td style="border:1px solid #d8ebe7;padding:4px 8px;font-size:8.5pt;color:#194b3f;font-weight:bold;width:22%;background:#e8f0ee;font-family:Calibri,Arial,sans-serif;">Ejecutivo de cuenta</td>' +
+    '<td colspan="3" style="border:1px solid #d8ebe7;padding:4px 8px;font-size:8.5pt;color:#1a1a1a;font-family:Calibri,Arial,sans-serif;">' + _escHtml_(data.ejecutivo_cuenta) + '</td>' +
+    '</tr></table>';
+
+  const secBasica =
+    sHdr('INFORMACIÓN BÁSICA') +
+    '<table style="width:100%;border-collapse:collapse;">' +
+    '<tr><td style="border:1px solid #d8ebe7;padding:4px 8px;font-size:8.5pt;color:#194b3f;font-weight:bold;width:22%;background:#e8f0ee;font-family:Calibri,Arial,sans-serif;">Razón Social</td>' +
+    '<td colspan="3" style="border:1px solid #d8ebe7;padding:4px 8px;font-size:8.5pt;font-family:Calibri,Arial,sans-serif;">' + _escHtml_(data.razon_social) + '</td></tr>' +
+    '<tr>' + tdPair('Nombre Comercial', data.nombre_comercial) + tdPair('NIT', data.identificacion) + '</tr>' +
+    '<tr>' + tdPair('Dirección', data.direccion) + tdPair('Ciudad', data.ciudad) + '</tr>' +
+    '<tr>' + tdPair('Departamento', data.departamento) + tdPair('Código Postal', data.cod_postal || '—') + '</tr>' +
+    '</table>';
+
+  const secRepLegal =
+    sHdr('REPRESENTANTE LEGAL') +
+    '<table style="width:100%;border-collapse:collapse;">' +
+    '<tr>' + tdPair('Nombre', data.nombre_rep_legal) + tdPair('Tipo de ID', data.tipo_id_rep) + '</tr>' +
+    '<tr>' + tdPair('No. Identificación', data.num_id_rep) + tdPair('Cargo', data.cargo_rep) + '</tr>' +
+    '<tr>' + tdPair('Teléfono', data.tel_rep) + tdPair('E-mail', data.correo_rep) + '</tr>' +
+    '</table>';
+
+  const secContactos =
+    sHdr('PERSONAS DE CONTACTO') +
+    '<table style="width:100%;border-collapse:collapse;"><thead><tr>' +
+    '<th style="' + thStyle + '">ÁREA</th>' +
+    '<th style="' + thStyle + '">NOMBRE</th>' +
+    '<th style="' + thStyle + '">TELÉFONO</th>' +
+    '<th style="' + thStyle + '">E-MAIL</th>' +
+    '</tr></thead><tbody>' + contactoRows + '</tbody></table>';
+
+  const secFiscal =
+    sHdr('RESPONSABILIDAD FISCAL') +
+    '<table style="width:100%;border-collapse:collapse;margin-top:2px;"><thead><tr>' +
+    '<th style="width:60px;' + thStyle + '">' + 'CÓDIGO</th>' +
+    '<th style="' + thStyle + '">SIGNIFICADO</th>' +
+    '<th style="width:40px;text-align:center;' + thStyle + '">&#10003;</th>' +
+    '</tr></thead><tbody>' + fiscalRows + '</tbody></table>';
+
+  const secFacturacion =
+    sHdr('INFORMACIÓN DE FACTURACIÓN') +
+    '<table style="width:100%;border-collapse:collapse;margin-top:2px;">' +
+    '<tr>' + tdPair('Fecha corte radicación', data.fact_fecha_corte) + tdPair('Inscripción proveedores', data.fact_inscripcion) + '</tr>' +
+    '<tr>' + tdPair('Docs. radicación facturas', data.fact_docs_req) + tdPair('E-mail facturación', data.fact_email) + '</tr>' +
+    '<tr>' + tdPair('E-mail CC', data.fact_email_cc || '—') +
+    '<td style="border:1px solid #d8ebe7;padding:3px 6px;width:22%;background:#e8f0ee;font-family:Calibri,Arial,sans-serif;"></td>' +
+    '<td style="border:1px solid #d8ebe7;padding:3px 6px;width:28%;font-family:Calibri,Arial,sans-serif;"></td></tr>' +
+    '</table>';
+
+  const secCondiciones =
+    sHdr('CONDICIONES DE LA SOLICITUD DE CRÉDITO') +
+    '<div style="font-size:8pt;color:#1a1a1a;text-align:justify;border:1px solid #0e362f;border-left:4px solid #d08b43;' +
+    'padding:10px 12px;background:#f9fcfb;line-height:1.5;font-family:Calibri,Arial,sans-serif;">' +
+    'Por este medio autorizo y ordeno que los centros anteriores y/o CupoFlow S.A.S. hagan una investigación de la situación financiera ' +
+    'y crediticia de la empresa incluyendo una investigación acerca de las referencias proporcionadas en este documento. Estoy facultado ' +
+    'para exigir a la empresa que solicita el crédito a efectuar el pago de todos los gastos incurridos en el (los) centro(es). Declaro y ' +
+    'acepto que el incumplimiento de pagos de la empresa a la que represento generará intereses de mora de acuerdo al valor máximo ' +
+    'establecido por ley, sin necesidad de requerimientos judiciales o extrajudiciales.' +
+    '</div>';
+
+  const secHabeas =
+    sHdr('AUTORIZACIÓN PARA TRATAMIENTO DE DATOS Y CONSULTA ANTE CENTRALES DE RIESGO') +
+    '<div style="font-size:8pt;color:#1a1a1a;text-align:justify;border:1px solid #0e362f;border-left:4px solid #d08b43;' +
+    'padding:10px 12px;background:#f9fcfb;line-height:1.5;font-family:Calibri,Arial,sans-serif;">' +
+    'El abajo firmante, actuando en calidad de Representante Legal, autoriza de manera expresa a CupoFlow S.A.S. y sus sociedades ' +
+    'vinculadas para: (a) consultar en centrales de riesgo crediticio (Ley 1266/2008, Ley 2157/2021) la información relevante para ' +
+    'valorar el riesgo crediticio; (b) reportar y divulgar ante centrales de riesgo el comportamiento crediticio; (c) realizar gestión ' +
+    'de conocimiento del cliente; (d) adelantar gestión de cobranza en caso de mora. El tratamiento de datos está sujeto a la Ley 1581 ' +
+    'de 2012 y las políticas publicadas en <strong>www.example.com</strong>.' +
+    '</div>';
+
+  const secValidacionOtp =
+    sHdr('VERIFICACIÓN ELECTRÓNICA Y FIRMA DIGITAL') +
+    '<table style="width:100%;border-collapse:collapse;">' +
+    '<tr><td colspan="4" style="padding:14px 16px;border:1px solid #d8ebe7;text-align:center;background:#fafcfc;">' +
+    '<span style="color:#0e362f;font-weight:bold;font-size:10pt;font-family:Calibri,Arial,sans-serif;">SOLICITUD VALIDADA MEDIANTE CÓDIGO OTP (Email)</span><br>' +
+    '<span style="color:#555;font-size:8.5pt;margin-top:6px;display:block;font-family:Calibri,Arial,sans-serif;line-height:1.5;">' +
+    'Esta solicitud fue confirmada electrónicamente por el representante legal <strong>' +
+    _escHtml_(data.nombre_rep_legal) + '</strong> a través del correo <strong>' + _escHtml_(data.correo_rep) + '</strong>.' +
+    '</span></td></tr>' +
+    '<tr>' + tdPair('Código de solicitud', data.codigo_solicitud) + tdPair('Fecha de envío', data.fecha_diligenciamiento) + '</tr>' +
+    '<tr>' + tdPair('IP del dispositivo', data.ip_dispositivo || '—') + tdPair('Estado de firma', 'CONFIRMADA VÍA OTP') + '</tr>' +
+    '</table>' +
+    '<div style="font-size:8pt;color:#0e362f;margin-top:16px;text-align:center;border-top:1px solid #d08b43;' +
+    'padding-top:6px;font-weight:bold;font-family:Calibri,Arial,sans-serif;">' +
+    'Código de solicitud: <strong>' + _escHtml_(data.codigo_solicitud) + '</strong>' +
+    ' &nbsp;&middot;&nbsp; Generado automáticamente por el sistema CupoFlow' +
+    '</div>';
+
+  function wrapPage(content, pageNum, totalPages) {
+    return '<div class="page" style="' + pgStyle + '">' + headerHtml +
+      '<div style="' + contentStyle + '">' + content + '</div>' +
+      buildFooterHtml(pageNum, totalPages) + '</div>';
+  }
+
+  // Si son 4 o menos centros, cabe holgadamente en 2 páginas sin dejar espacios vacíos.
+  // Si son 5 o más centros (o todos los 28 del grupo), se distribuye en 3 páginas limpias.
+  const esModo2Paginas = listaCentros.length <= 4;
+  const pages = esModo2Paginas
+    ? [
+        wrapPage(secCentros + secTipo + secBasica + secRepLegal + secContactos, 1, 2),
+        wrapPage(secFiscal + secFacturacion + secCondiciones + secHabeas + secValidacionOtp, 2, 2)
+      ]
+    : [
+        wrapPage(secCentros + secTipo + secBasica, 1, 3),
+        wrapPage(secRepLegal + secContactos + secFiscal + secFacturacion, 2, 3),
+        wrapPage(secCondiciones + secHabeas + secValidacionOtp, 3, 3)
+      ];
+
+  const css = '* { margin:0; padding:0; box-sizing:border-box; } html, body { width:816px; height:1056px; overflow:hidden; background:#fff; }';
+
+  return { pages: pages, css: css };
+}
+
+async function _generarPdfFormularioClienteSide_() {
+  const v = id => (document.getElementById(id) || {}).value || '';
+  const inscrEl = document.querySelector('input[name="fact_inscripcion"]:checked');
+  const fiscal  = _buildFiscalValue_();
+
+  // Intentar obtener logo en base64 desde el servidor
+  let logoB64 = null;
+  try {
+    const logoRes = await new Promise((res, rej) =>
+      google.script.run.withSuccessHandler(res).withFailureHandler(rej).apiGetLogoBase64()
+    );
+    if (logoRes && logoRes.ok) logoB64 = logoRes.b64;
+  } catch(e) { /* logo text fallback */ }
+
+  const data = {
+    tipo_solicitud:         v('tipo_solicitud'),
+    razon_social:           v('razon_social'),
+    nombre_comercial:       v('nombre_comercial'),
+    identificacion:         v('nit'),
+    direccion:              v('direccion'),
+    ciudad:                 v('ciudad'),
+    departamento:           v('departamento'),
+    cod_postal:             v('cod_postal'),
+    nombre_rep_legal:       v('nombre_rep_legal'),
+    tipo_id_rep:            v('tipo_id_rep'),
+    num_id_rep:             v('num_id_rep'),
+    cargo_rep:              v('cargo_rep'),
+    tel_rep:                v('tel_rep'),
+    correo_rep:             v('correo_rep'),
+    responsabilidad_fiscal: fiscal,
+    monto:                  v('monto').replace(/\./g, '').replace(',', '.'),
+    moneda:                 v('moneda') || 'COP',
+    ejecutivo_cuenta:       v('ejecutivo_cuenta'),
+    fecha_diligenciamiento: v('fecha_diligenciamiento') || (typeof today === 'function' ? today() : ''),
+    fact_fecha_corte:       v('fact_fecha_corte'),
+    fact_inscripcion:       inscrEl ? inscrEl.value : 'NO',
+    fact_docs_req:          v('fact_docs_req'),
+    fact_email:             v('fact_email'),
+    fact_email_cc:          v('fact_email_cc'),
+    contactos: [
+      { area: 'Tesorería',           nombre: v('cont_tes_nombre'), tel: v('cont_tes_tel'),  email: v('cont_tes_email')  },
+      { area: 'Cuentas por pagar',   nombre: v('cont_cp_nombre'),  tel: v('cont_cp_tel'),   email: v('cont_cp_email')   },
+      { area: 'Director Financiero', nombre: v('cont_df_nombre'),  tel: v('cont_df_tel'),   email: v('cont_df_email')   },
+      { area: 'Comercial',           nombre: v('cont_com_nombre'), tel: v('cont_com_tel'),  email: v('cont_com_email')  }
+    ],
+    codigo_solicitud: STATE.codigoSolicitud || '',
+    ip_dispositivo:   STATE.ip_dispositivo || ''
+  };
+
+  const centros = (STATE.selectedCentros || []).map(sh => {
+    const catalogCentro = (STATE.catalogos && STATE.catalogos.centros || []).find(ch => ch.codigo === sh.codigo);
+    return catalogCentro ? catalogCentro : sh;
+  });
+  const { pages, css } = _buildFormularioPdfHtml_(data, centros, logoB64);
+  const canvases = [];
+
+  const renderPage = (idx) => new Promise((res, rej) => {
+    if (idx >= pages.length) { res(); return; }
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:fixed;top:0;left:0;width:816px;height:1056px;border:none;z-index:1;';
+    const fullHtml = '<!DOCTYPE html><html><head><meta charset="utf-8"><style>' + css + '</style></head><body>' + pages[idx] + '</body></html>';
+    iframe.setAttribute('srcdoc', fullHtml);
+    document.body.appendChild(iframe);
+    iframe.onload = function () {
+      setTimeout(function () {
+        const pageEl = iframe.contentDocument.querySelector('.page') || iframe.contentDocument.body;
+        html2canvas(pageEl, {
+          scale: 3, useCORS: true, logging: false,
+          windowWidth: 816, windowHeight: 1056, scrollX: 0, scrollY: 0
+        }).then(function (canvas) {
+          document.body.removeChild(iframe);
+          canvases.push(canvas);
+          renderPage(idx + 1).then(res).catch(rej);
+        }).catch(function (e) {
+          if (iframe.parentNode) document.body.removeChild(iframe);
+          rej(e);
+        });
+      }, 250);
+    };
+  });
+
+  await renderPage(0);
+
+  const jsPDFCtor = window.jspdf && window.jspdf.jsPDF;
+  if (!jsPDFCtor) throw new Error('jsPDF no disponible — revisa los CDN en Index.html');
+
+  const doc = new jsPDFCtor({ unit: 'pt', format: 'letter', orientation: 'portrait' });
+  canvases.forEach((canvas, i) => {
+    if (i > 0) doc.addPage();
+    doc.addImage(canvas.toDataURL('image/jpeg', 0.97), 'JPEG', 0, 0, 612, 792);
+  });
+
+  const buffer = doc.output('arraybuffer');
+  const bytes  = new Uint8Array(buffer);
+  let binary   = '';
+  for (let j = 0; j < bytes.byteLength; j++) binary += String.fromCharCode(bytes[j]);
+  const pdfBase64 = btoa(binary);
+
+  const razonSafe = (data.razon_social || 'Solicitud').replace(/[<>:"/\\|?*]/g, ' ').trim().slice(0, 60);
+
+  await new Promise((resolve, reject) => {
+    google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler(reject)
+      .apiGuardarPdfSolicitud({
+        uuid:             STATE.submissionUuid,
+        pdfBase64:        pdfBase64,
+        fileName:         'OX-F-GFI-18_' + razonSafe + '.pdf',
+        carpeta_drive_id: STATE.carpetaDriveId || ''
+      });
+  });
+}
+
+/* ═══════════════════════════════════════
+   Init
+═══════════════════════════════════════ */
+document.addEventListener('DOMContentLoaded', function () {
+  // initTipoEmpresaSingleSelection eliminado — tipo_empresa ya no existe
+});
+</script>

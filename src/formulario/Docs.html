@@ -1,0 +1,1498 @@
+<script>
+/* Docs.html */
+
+const DOC_HINTS = {
+  FORMATO_SOLICITUD: 'Firmado por el representante legal',
+  CERT_EXISTENCIA:   'Vigencia ≤ 30 días',
+  RUT:               'No mayor a 30 días, todas las hojas',
+  ESTADOS_FIN:       'Últimos 2 años',
+  EXTRACTOS:         'Últimos 3 meses',
+  DECL_RENTA:        'Último año gravable',
+  CERT_CONSTITUCION: 'País de origen',
+  CARTA_SIN_EEFF:    'Firmada Rep. Legal, vigencia ≤ 6 meses'
+};
+
+const DOC_VIGENCIA = {
+  CERT_EXISTENCIA: { dias: 30,  label: 'Fecha de expedición del certificado' },
+  CARTA_SIN_EEFF:  { dias: 180, label: 'Fecha de expedición de la carta' }
+};
+
+/* ═══════════════════════════════════════
+   Drag and Drop Helpers
+═══════════════════════════════════════ */
+function handleDocDrop(event, card) {
+  event.preventDefault();
+  card.style.borderColor = '';
+  card.style.background = '';
+  if (!event.dataTransfer || !event.dataTransfer.files || !event.dataTransfer.files.length) return;
+  
+  let fi = null;
+  const pickers = card.querySelectorAll('.file-pick-wrap');
+  for (const picker of pickers) {
+    if (window.getComputedStyle(picker).display !== 'none') {
+      fi = picker.querySelector('input[type="file"]');
+      break;
+    }
+  }
+  
+  if (fi) {
+    fi.files = event.dataTransfer.files;
+    fi.dispatchEvent(new Event('change'));
+  }
+}
+
+function handleDocDragOver(event, card) {
+  event.preventDefault();
+  card.style.borderColor = 'var(--navy3)';
+  card.style.background = 'rgba(25, 75, 63,0.03)';
+}
+
+function handleDocDragLeave(event, card) {
+  card.style.borderColor = '';
+  card.style.background = '';
+}
+
+/* ═══════════════════════════════════════
+   buildDocCard
+═══════════════════════════════════════ */
+function buildDocCard(code, label, isRequired, hint, isMulti) {
+  const multiAttr    = isMulti ? 'multiple' : '';
+  const onchangeCall = isMulti
+    ? `onFileSelected('${code}', this, true)`
+    : `onFileSelected('${code}', this, false)`;
+
+  const vigCfg = DOC_VIGENCIA[code] || null;
+
+  return `
+    <div class="doc-card" id="docCard_${code}" ondragover="handleDocDragOver(event, this)" ondragleave="handleDocDragLeave(event, this)" ondrop="handleDocDrop(event, this)">
+      <div class="doc-card-top">
+        <div class="doc-left">
+          <div class="doc-icon">${SVG.doc}</div>
+          <div class="doc-meta">
+            <div class="doc-name">${label}</div>
+            <div class="doc-sub">
+              <span class="doc-badge ${isRequired ? 'required' : 'optional'}">
+                ${isRequired ? 'Obligatorio' : 'Opcional'}
+              </span>
+              ${hint ? `<span class="doc-hint">${hint}</span>` : ''}
+              ${isMulti ? '<span class="doc-hint">Permite varios archivos</span>' : ''}
+            </div>
+            <div class="doc-file-name" id="docFileName_${code}"></div>
+          </div>
+        </div>
+        <div class="doc-actions">
+          <span class="doc-status pending" id="docStatus_${code}">
+            <svg viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4"/></svg>
+            Pendiente
+          </span>
+          <button type="button" class="btn-remove-doc" id="docRemoveBtn_${code}"
+                  style="display:none" title="Quitar archivo"
+                  onclick="removeDoc('${code}', ${isMulti})">✕</button>
+          <div class="file-pick-wrap">
+            <button type="button" class="btn-file" onclick="openDocPicker('${code}')">
+              ${SVG.upload} ${isMulti ? 'Subir PDF(s)' : 'Subir PDF'}
+            </button>
+            <input type="file" id="docInput_${code}" accept="application/pdf,.pdf"
+                   ${multiAttr} onchange="${onchangeCall}" hidden>
+          </div>
+        </div>
+      </div>
+${vigCfg ? `
+      <div class="doc-vig-wrap hidden" id="docVigWrap_${code}">
+        <span class="doc-vig-label">${vigCfg.label} <span class="req">*</span></span>
+        <div class="dtp-wrap" id="dtpWrap_${code}">
+          <div class="dtp-trigger" id="dtpTrigger_${code}" tabindex="0" onclick="dtpOpen('${code}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();dtpOpen('${code}')}">
+            <svg width="14" height="14" viewBox="0 0 20 20" fill="none">
+              <rect x="2" y="3" width="16" height="15" rx="2" stroke="currentColor" stroke-width="1.5"/>
+              <line x1="2" y1="8" x2="18" y2="8" stroke="currentColor" stroke-width="1.5"/>
+              <line x1="7" y1="2" x2="7" y2="5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              <line x1="13" y1="2" x2="13" y2="5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            <span class="dtp-placeholder">dd/mm/aaaa</span>
+          </div>
+          <div class="dtp-panel" id="dtpPanel_${code}">
+            <div class="dtp-nav">
+              <button type="button" class="dtp-nav-btn" id="dtpPrev_${code}" onclick="dtpPrev('${code}')">&#8249;</button>
+              <span class="dtp-month-year" id="dtpTitle_${code}"></span>
+              <button type="button" class="dtp-nav-btn" id="dtpNext_${code}" onclick="dtpNext('${code}')">&#8250;</button>
+            </div>
+            <div class="dtp-dow-row">
+              <span class="dtp-dow">Lu</span><span class="dtp-dow">Ma</span><span class="dtp-dow">Mi</span>
+              <span class="dtp-dow">Ju</span><span class="dtp-dow">Vi</span><span class="dtp-dow">Sá</span>
+              <span class="dtp-dow">Do</span>
+            </div>
+            <div class="dtp-days" id="dtpDays_${code}"></div>
+            <button type="button" class="dtp-clear" onclick="dtpClear('${code}')">Limpiar selección</button>
+          </div>
+        </div>
+        <input type="hidden" id="docVigDate_${code}">
+        <div class="doc-vigencia-error hidden" id="docVigError_${code}"></div>
+      </div>` : ''}
+    </div>`;
+}
+
+function buildEstadosFinCard() {
+  return `
+    <div class="doc-card" id="docCard_ESTADOS_FIN" ondragover="handleDocDragOver(event, this)" ondragleave="handleDocDragLeave(event, this)" ondrop="handleDocDrop(event, this)">
+      <div class="doc-card-top">
+        <div class="doc-left">
+          <div class="doc-icon">${SVG.doc}</div>
+          <div class="doc-meta">
+            <div class="doc-name" id="eeff_label">Estados financieros de los 2 últimos años</div>
+            <div class="doc-sub">
+              <span class="doc-badge required">Obligatorio</span>
+              <span class="doc-hint" id="eeff_hint">Últimos 2 años</span>
+              <span class="doc-hint" id="eeff_multi_hint">Permite varios archivos</span>
+            </div>
+            <div class="doc-file-name" id="docFileName_ESTADOS_FIN"></div>
+            <div class="doc-file-name" id="docFileName_CARTA_SIN_EEFF" style="display:none"></div>
+          </div>
+        </div>
+        <div class="doc-actions">
+          <span class="doc-status pending" id="docStatus_ESTADOS_FIN">
+            <svg viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4"/></svg>
+            Pendiente
+          </span>
+          <button type="button" class="btn-remove-doc" id="docRemoveBtn_ESTADOS_FIN"
+                  style="display:none" title="Quitar archivo"
+                  onclick="removeEeffDoc()">✕</button>
+          <div class="file-pick-wrap" id="eeff_picker">
+            <button type="button" class="btn-file" onclick="openDocPicker('ESTADOS_FIN')">
+              ${SVG.upload} Subir PDF(s)
+            </button>
+            <input type="file" id="docInput_ESTADOS_FIN" accept="application/pdf,.pdf"
+                   multiple onchange="onFileSelected('ESTADOS_FIN', this, true)" hidden>
+          </div>
+          <div class="file-pick-wrap" id="carta_picker" style="display:none">
+            <button type="button" class="btn-file" onclick="openDocPicker('CARTA_SIN_EEFF')">
+              ${SVG.upload} Subir carta
+            </button>
+            <input type="file" id="docInput_CARTA_SIN_EEFF" accept="application/pdf,.pdf"
+                   onchange="onFileSelected('CARTA_SIN_EEFF', this, false)" hidden>
+          </div>
+        </div>
+      </div>
+
+      <!-- Toggle carta justificación -->
+      <div class="eeff-toggle-wrap">
+        <label class="eeff-toggle-label" for="eeff_toggle">
+          <span>No puedo adjuntar estados financieros — adjunto carta de imposibilidad</span>
+          <div class="eeff-toggle-track">
+            <input type="checkbox" id="eeff_toggle" onchange="toggleEeffMode(this.checked)">
+            <div class="eeff-toggle-thumb"></div>
+          </div>
+        </label>
+        <span class="eeff-toggle-hint">
+          Carta firmada por el representante legal justificando la ausencia (vigencia ≤ 6 meses)
+        </span>
+      </div>
+
+      <!-- Vigencia carta -->
+      <div class="doc-vig-wrap hidden" id="docVigWrap_CARTA_SIN_EEFF">
+        <span class="doc-vig-label">Fecha de expedición de la carta <span class="req">*</span></span>
+        <div class="dtp-wrap" id="dtpWrap_CARTA_SIN_EEFF">
+          <div class="dtp-trigger" id="dtpTrigger_CARTA_SIN_EEFF" tabindex="0"
+               onclick="dtpOpen('CARTA_SIN_EEFF')"
+               onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();dtpOpen('CARTA_SIN_EEFF')}">
+            <svg width="14" height="14" viewBox="0 0 20 20" fill="none">
+              <rect x="2" y="3" width="16" height="15" rx="2" stroke="currentColor" stroke-width="1.5"/>
+              <line x1="2" y1="8" x2="18" y2="8" stroke="currentColor" stroke-width="1.5"/>
+              <line x1="7" y1="2" x2="7" y2="5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              <line x1="13" y1="2" x2="13" y2="5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            <span class="dtp-placeholder">dd/mm/aaaa</span>
+          </div>
+          <div class="dtp-panel" id="dtpPanel_CARTA_SIN_EEFF">
+            <div class="dtp-nav">
+              <button type="button" class="dtp-nav-btn" id="dtpPrev_CARTA_SIN_EEFF" onclick="dtpPrev('CARTA_SIN_EEFF')">&#8249;</button>
+              <span class="dtp-month-year" id="dtpTitle_CARTA_SIN_EEFF"></span>
+              <button type="button" class="dtp-nav-btn" id="dtpNext_CARTA_SIN_EEFF" onclick="dtpNext('CARTA_SIN_EEFF')">&#8250;</button>
+            </div>
+            <div class="dtp-dow-row">
+              <span class="dtp-dow">Lu</span><span class="dtp-dow">Ma</span><span class="dtp-dow">Mi</span>
+              <span class="dtp-dow">Ju</span><span class="dtp-dow">Vi</span><span class="dtp-dow">Sá</span>
+              <span class="dtp-dow">Do</span>
+            </div>
+            <div class="dtp-days" id="dtpDays_CARTA_SIN_EEFF"></div>
+            <button type="button" class="dtp-clear" onclick="dtpClear('CARTA_SIN_EEFF')">Limpiar selección</button>
+          </div>
+        </div>
+        <input type="hidden" id="docVigDate_CARTA_SIN_EEFF">
+        <div class="doc-vigencia-error hidden" id="docVigError_CARTA_SIN_EEFF"></div>
+      </div>
+    </div>`;
+}
+
+function buildCedulaRepCard() {
+  return `
+    <div class="doc-card" id="docCard_CEDULA_REP" ondragover="handleDocDragOver(event, this)" ondragleave="handleDocDragLeave(event, this)" ondrop="handleDocDrop(event, this)">
+      <div class="doc-card-top">
+        <div class="doc-left">
+          <div class="doc-icon">${SVG.doc}</div>
+          <div class="doc-meta">
+            <div class="doc-name" id="cedula_label">Copia cédula / cédula de extranjería del representante legal</div>
+            <div class="doc-sub">
+              <span class="doc-badge required">Obligatorio</span>
+              <span class="doc-hint" id="cedula_hint"></span>
+            </div>
+            <div class="doc-file-name" id="docFileName_CEDULA_REP"></div>
+            <div class="doc-file-name" id="docFileName_CARTA_SIN_CEDULA" style="display:none"></div>
+          </div>
+        </div>
+        <div class="doc-actions">
+          <span class="doc-status pending" id="docStatus_CEDULA_REP">
+            <svg viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4"/></svg>
+            Pendiente
+          </span>
+          <button type="button" class="btn-remove-doc" id="docRemoveBtn_CEDULA_REP"
+                  style="display:none" title="Quitar archivo"
+                  onclick="removeCedulaDoc()">✕</button>
+          <div class="file-pick-wrap" id="cedula_picker">
+            <button type="button" class="btn-file" onclick="openDocPicker('CEDULA_REP')">
+              ${SVG.upload} Subir PDF
+            </button>
+            <input type="file" id="docInput_CEDULA_REP" accept="application/pdf,.pdf"
+                   onchange="onFileSelected('CEDULA_REP', this, false)" hidden>
+          </div>
+          <div class="file-pick-wrap" id="carta_cedula_picker" style="display:none">
+            <button type="button" class="btn-file" onclick="openDocPicker('CARTA_SIN_CEDULA')">
+              ${SVG.upload} Subir carta
+            </button>
+            <input type="file" id="docInput_CARTA_SIN_CEDULA" accept="application/pdf,.pdf"
+                   onchange="onFileSelected('CARTA_SIN_CEDULA', this, false)" hidden>
+          </div>
+        </div>
+      </div>
+
+      <!-- Toggle carta justificación cédula -->
+      <div class="eeff-toggle-wrap">
+        <label class="eeff-toggle-label" for="cedula_toggle">
+          <span>No puedo adjuntar cédula del representante legal — adjunto carta de imposibilidad</span>
+          <div class="eeff-toggle-track">
+            <input type="checkbox" id="cedula_toggle" onchange="toggleCedulaMode(this.checked)">
+            <div class="eeff-toggle-thumb"></div>
+          </div>
+        </label>
+        <span class="eeff-toggle-hint">
+          Carta justificando la ausencia de cédula o solicitud de información confidencial.
+        </span>
+      </div>
+    </div>`;
+}
+
+function toggleCedulaMode(usaCarta) {
+  STATE.cedulaMode = usaCarta ? 'CARTA' : 'CEDULA';
+
+  const labelEl     = $('cedula_label');
+  const hintEl      = $('cedula_hint');
+  const cedulaPicker  = $('cedula_picker');
+  const cartaPicker = $('carta_cedula_picker');
+  const fileNameCedula  = $('docFileName_CEDULA_REP');
+  const fileNameCarta = $('docFileName_CARTA_SIN_CEDULA');
+
+  if (usaCarta) {
+    if (labelEl)   labelEl.textContent  = 'Carta de imposibilidad o solicitud de información confidencial (cédula)';
+    if (hintEl)    hintEl.textContent   = 'Carta firmada por el representante legal o solicitud de información confidencial';
+    if (cedulaPicker)  cedulaPicker.style.display  = 'none';
+    if (cartaPicker) cartaPicker.style.display  = '';
+    // Limpiar Cédula si había archivo
+    delete STATE.filesByCode['CEDULA_REP'];
+    if (fileNameCedula) fileNameCedula.innerHTML = '';
+    if (fileNameCarta) fileNameCarta.style.display = '';
+  } else {
+    if (labelEl)   labelEl.textContent  = 'Copia cédula / cédula de extranjería del representante legal';
+    if (hintEl)    hintEl.textContent   = '';
+    if (cedulaPicker)  cedulaPicker.style.display  = '';
+    if (cartaPicker) cartaPicker.style.display  = 'none';
+    // Limpiar carta si había
+    delete STATE.filesByCode['CARTA_SIN_CEDULA'];
+    if (fileNameCarta) { fileNameCarta.innerHTML = ''; fileNameCarta.style.display = 'none'; }
+    // Limpiar input file
+    const inputCarta = $('docInput_CARTA_SIN_CEDULA');
+    if (inputCarta) inputCarta.value = '';
+  }
+  
+  // Reset status
+  const statusEl  = $('docStatus_CEDULA_REP');
+  const removeBtn = $('docRemoveBtn_CEDULA_REP');
+  if (statusEl)  { statusEl.className = 'doc-status pending'; statusEl.innerHTML = '<svg viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4"/></svg> Pendiente'; }
+  if (removeBtn) removeBtn.style.display = 'none';
+}
+
+function removeCedulaDoc() {
+  const usaCarta = STATE.cedulaMode === 'CARTA';
+  if (usaCarta) {
+    delete STATE.filesByCode['CARTA_SIN_CEDULA'];
+    const fileNameEl = $('docFileName_CARTA_SIN_CEDULA');
+    if (fileNameEl) fileNameEl.textContent = '';
+  } else {
+    delete STATE.filesByCode['CEDULA_REP'];
+    const fileNameEl = $('docFileName_CEDULA_REP');
+    if (fileNameEl) fileNameEl.textContent = '';
+  }
+  const statusEl  = $('docStatus_CEDULA_REP');
+  const removeBtn = $('docRemoveBtn_CEDULA_REP');
+  if (statusEl)  { statusEl.className = 'doc-status pending'; statusEl.innerHTML = '<svg viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4"/></svg> Pendiente'; }
+  if (removeBtn) removeBtn.style.display = 'none';
+  const input = $('docInput_' + (usaCarta ? 'CARTA_SIN_CEDULA' : 'CEDULA_REP'));
+  if (input) input.value = '';
+}
+
+function aceptarCartaCedulaDirecto(file) {
+  const statusEl   = $('docStatus_CEDULA_REP');
+  const fileNameEl = $('docFileName_CARTA_SIN_CEDULA');
+  const btnEl      = document.querySelector('#carta_cedula_picker .btn-file');
+  const removeBtn  = $('docRemoveBtn_CEDULA_REP');
+
+  STATE.filesByCode['CARTA_SIN_CEDULA'] = file;
+  if (fileNameEl) { fileNameEl.textContent = file.name; fileNameEl.style.display = ''; }
+  if (statusEl)   { statusEl.className = 'doc-status ok'; statusEl.innerHTML = SVG.check + ' Listo'; }
+  if (btnEl)      { btnEl.innerHTML = SVG.upload + ' Cambiar carta'; btnEl.disabled = false; }
+  if (removeBtn)  removeBtn.style.display = '';
+}
+
+function toggleEeffMode(usaCarta) {
+  STATE.eeffMode = usaCarta ? 'CARTA' : 'EEFF';
+
+  const labelEl     = $('eeff_label');
+  const hintEl      = $('eeff_hint');
+  const multiHint   = $('eeff_multi_hint');
+  const eeffPicker  = $('eeff_picker');
+  const cartaPicker = $('carta_picker');
+  const vigWrap     = $('docVigWrap_CARTA_SIN_EEFF');
+  const fileNameEeff  = $('docFileName_ESTADOS_FIN');
+  const fileNameCarta = $('docFileName_CARTA_SIN_EEFF');
+
+  if (usaCarta) {
+    if (labelEl)   labelEl.textContent  = 'Carta de imposibilidad de entrega de estados financieros';
+    if (hintEl)    hintEl.textContent   = 'Firmada Rep. Legal, vigencia ≤ 6 meses';
+    if (multiHint) multiHint.style.display = 'none';
+    if (eeffPicker)  eeffPicker.style.display  = 'none';
+    if (cartaPicker) cartaPicker.style.display  = '';
+    // Limpiar EEFF si había archivos
+    STATE.filesMultiByCode['ESTADOS_FIN'] = [];
+    if (fileNameEeff) fileNameEeff.innerHTML = '';
+    updateMultiDocStatus('ESTADOS_FIN');
+    if (fileNameCarta) fileNameCarta.style.display = '';
+  } else {
+    if (labelEl)   labelEl.textContent  = 'Estados financieros de los 2 últimos años';
+    if (hintEl)    hintEl.textContent   = 'Últimos 2 años';
+    if (multiHint) multiHint.style.display = '';
+    if (eeffPicker)  eeffPicker.style.display  = '';
+    if (cartaPicker) cartaPicker.style.display  = 'none';
+    if (vigWrap)   vigWrap.classList.add('hidden');
+    // Limpiar carta si había
+    delete STATE.filesByCode['CARTA_SIN_EEFF'];
+    dtpClear('CARTA_SIN_EEFF');
+    if (fileNameCarta) { fileNameCarta.innerHTML = ''; fileNameCarta.style.display = 'none'; }
+    // Limpiar input file
+    const inputCarta = $('docInput_CARTA_SIN_EEFF');
+    if (inputCarta) inputCarta.value = '';
+    // Reset status
+    const statusEl  = $('docStatus_ESTADOS_FIN');
+    const removeBtn = $('docRemoveBtn_ESTADOS_FIN');
+    if (statusEl)  { statusEl.className = 'doc-status pending'; statusEl.innerHTML = '<svg viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4"/></svg> Pendiente'; }
+    if (removeBtn) removeBtn.style.display = 'none';
+  }
+}
+
+function removeEeffDoc() {
+  const usaCarta = STATE.eeffMode === 'CARTA';
+  if (usaCarta) {
+    delete STATE.filesByCode['CARTA_SIN_EEFF'];
+    const fileNameEl = $('docFileName_CARTA_SIN_EEFF');
+    if (fileNameEl) fileNameEl.textContent = '';
+    const vigWrap = $('docVigWrap_CARTA_SIN_EEFF');
+    if (vigWrap) vigWrap.classList.add('hidden');
+    dtpClear('CARTA_SIN_EEFF');
+  } else {
+    STATE.filesMultiByCode['ESTADOS_FIN'] = [];
+    // Rehabilitar botón subir EEFF
+    const btnFile = document.querySelector('#eeff_picker .btn-file');
+    if (btnFile) {
+      btnFile.disabled = false;
+      btnFile.style.opacity = '';
+      btnFile.style.cursor  = '';
+    }
+    const fileNameEl = $('docFileName_ESTADOS_FIN');
+    if (fileNameEl) fileNameEl.textContent = '';
+  }
+  const statusEl  = $('docStatus_ESTADOS_FIN');
+  const removeBtn = $('docRemoveBtn_ESTADOS_FIN');
+  if (statusEl)  { statusEl.className = 'doc-status pending'; statusEl.innerHTML = '<svg viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4"/></svg> Pendiente'; }
+  if (removeBtn) removeBtn.style.display = 'none';
+  const input = $('docInput_' + (usaCarta ? 'CARTA_SIN_EEFF' : 'ESTADOS_FIN'));
+  if (input) input.value = '';
+}
+
+/* ═══════════════════════════════════════
+   renderDocs
+═══════════════════════════════════════ */
+function renderDocs() {
+  const grid = $('docsList');
+  if (!grid) return;
+
+  let html = '';
+
+  DOCS_REQUERIDOS_FIJOS.forEach(doc => {
+    if (doc.codigo === 'ESTADOS_FIN') {
+      html += buildEstadosFinCard();
+    } else if (doc.codigo === 'CEDULA_REP') {
+      html += buildCedulaRepCard();
+    } else {
+      const hint = DOC_HINTS[doc.codigo] || '';
+      html += buildDocCard(doc.codigo, doc.nombre, true, hint, false);
+    }
+  });
+
+  DOCS_OPCIONALES.forEach(doc => {
+    html += buildDocCard(doc.codigo, doc.nombre, false, '', false);
+  });
+
+  grid.innerHTML = html;
+
+  // Restaurar estado de toggles primero
+  if (STATE.eeffMode === 'CARTA' || STATE.filesByCode['CARTA_SIN_EEFF']) {
+    const toggle = $('eeff_toggle');
+    if (toggle) {
+      toggle.checked = true;
+      toggleEeffMode(true);
+    }
+  }
+  if (STATE.cedulaMode === 'CARTA' || STATE.filesByCode['CARTA_SIN_CEDULA']) {
+    const toggle = $('cedula_toggle');
+    if (toggle) {
+      toggle.checked = true;
+      toggleCedulaMode(true);
+    }
+  }
+
+  // Restaurar estado archivos ya cargados
+  Object.keys(STATE.filesByCode).forEach(code => {
+    const file = STATE.filesByCode[code];
+    let targetCode = code;
+    if (code === 'CARTA_SIN_CEDULA') {
+      targetCode = 'CEDULA_REP';
+    }
+    if (code === 'CARTA_SIN_EEFF') {
+      targetCode = 'ESTADOS_FIN';
+    }
+    const statusEl   = $('docStatus_'   + targetCode);
+    const fileNameEl = $('docFileName_' + code);
+    let btnEl;
+    if (code === 'CARTA_SIN_EEFF') {
+      btnEl = document.querySelector('#carta_picker .btn-file');
+    } else {
+      btnEl = document.querySelector('#docCard_' + targetCode + ' .btn-file');
+    }
+    const removeBtn  = $('docRemoveBtn_' + targetCode);
+    const vigWrap    = $('docVigWrap_'  + targetCode);
+    if (fileNameEl) fileNameEl.textContent = file.name;
+    if (statusEl)   { statusEl.className = 'doc-status ok'; statusEl.innerHTML = SVG.check + ' Listo'; }
+    if (btnEl)      { btnEl.innerHTML = SVG.upload + (code === 'CARTA_SIN_CEDULA' || code === 'CARTA_SIN_EEFF' ? ' Cambiar carta' : ' Cambiar PDF'); }
+    if (removeBtn)  removeBtn.style.display = '';
+    if (vigWrap)    vigWrap.classList.remove('hidden');
+    // Restaurar fecha si ya fue seleccionada
+    const savedDate = (STATE.vigencias || {})[code] || '';
+    if (savedDate) {
+      const hiddenEl = $('docVigDate_' + code);
+      if (hiddenEl) hiddenEl.value = savedDate;
+      if (!DTP_STATE[code]) dtpInit(code);
+      // Restaurar selección visual en el trigger
+      const trigger = $('dtpTrigger_' + code);
+      if (trigger) {
+        trigger.classList.remove('input-error');
+        trigger.innerHTML = `
+          <svg width="14" height="14" viewBox="0 0 20 20" fill="none">
+            <rect x="2" y="3" width="16" height="15" rx="2" stroke="currentColor" stroke-width="1.5"/>
+            <line x1="2" y1="8" x2="18" y2="8" stroke="currentColor" stroke-width="1.5"/>
+            <line x1="7" y1="2" x2="7" y2="5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="13" y1="2" x2="13" y2="5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          ${savedDate}`;
+      }
+    }
+  });
+  Object.keys(STATE.filesMultiByCode).forEach(code => {
+    updateMultiDocStatus(code);
+  });
+
+  renderDocsSlotsAdicionales();
+}
+
+function openDocPicker(code) {
+  const input = $('docInput_' + code);
+  if (input) input.click();
+}
+
+/* ═══════════════════════════════════════
+   onFileSelected
+═══════════════════════════════════════ */
+function onFileSelected(code, input, isMulti) {
+  const files = Array.from((input && input.files) || []);
+  if (!files.length) return;
+
+  for (const file of files) {
+    const isPdfMime = file.type === 'application/pdf';
+    const isPdfName = /\.pdf$/i.test(file.name || '');
+    if (!isPdfMime && !isPdfName) {
+      showValidationModal(`El archivo <strong>${file.name}</strong> no es un PDF válido.`);
+      input.value = '';
+      return;
+    }
+    if (file.size > 30 * 1024 * 1024) {
+      showValidationModal(`El archivo <strong>${file.name}</strong> supera el límite de 30 MB.`);
+      input.value = '';
+      return;
+    }
+  }
+
+  if (isMulti) {
+    if (!STATE.filesMultiByCode[code]) STATE.filesMultiByCode[code] = [];
+    const MAX = 3;
+    const disponibles = MAX - STATE.filesMultiByCode[code].length;
+    if (disponibles <= 0) return;
+    STATE.filesMultiByCode[code].push(...files.slice(0, disponibles));
+    updateMultiDocStatus(code);
+  } else {
+    if (code === 'CARTA_SIN_CEDULA') {
+      aceptarCartaCedulaDirecto(files[0]);
+      return;
+    }
+
+    // Carta de imposibilidad de estados financieros: usa la tarjeta padre ESTADOS_FIN
+    if (code === 'CARTA_SIN_EEFF') {
+      STATE.filesByCode['CARTA_SIN_EEFF'] = files[0];
+      const statusEl   = $('docStatus_ESTADOS_FIN');
+      const fileNameEl = $('docFileName_CARTA_SIN_EEFF');
+      if (fileNameEl) { fileNameEl.textContent = files[0].name; fileNameEl.style.display = ''; }
+      if (statusEl)   { statusEl.className = 'doc-status ok'; statusEl.innerHTML = SVG.check + ' Listo'; }
+      const btnEl = document.querySelector('#carta_picker .btn-file');
+      if (btnEl) { btnEl.innerHTML = SVG.upload + ' Cambiar carta'; btnEl.title = 'Haz clic para reemplazar'; }
+      const removeBtn = $('docRemoveBtn_ESTADOS_FIN');
+      if (removeBtn) removeBtn.style.display = '';
+      const vigWrap = $('docVigWrap_CARTA_SIN_EEFF');
+      if (vigWrap) vigWrap.classList.remove('hidden');
+      input.value = '';
+      return;
+    }
+
+    STATE.filesByCode[code] = files[0];
+    const statusEl   = $('docStatus_'   + code);
+    const fileNameEl = $('docFileName_' + code);
+    if (fileNameEl) fileNameEl.textContent = files[0].name;
+    if (statusEl) { statusEl.className = 'doc-status ok'; statusEl.innerHTML = SVG.check + ' Listo'; }
+    const btnEl = document.querySelector('#docCard_' + code + ' .btn-file');
+    if (btnEl) {
+      btnEl.innerHTML = SVG.upload + ' Cambiar PDF';
+      btnEl.title = 'Haz clic para reemplazar el archivo';
+    }
+    const removeBtn = $('docRemoveBtn_' + code);
+    if (removeBtn) removeBtn.style.display = '';
+    const vigWrap = $('docVigWrap_' + code);
+    if (vigWrap) vigWrap.classList.remove('hidden');
+  }
+
+  input.value = '';
+}
+
+function removeDoc(code, isMulti) {
+  if (isMulti) {
+    STATE.filesMultiByCode[code] = [];
+    updateMultiDocStatus(code);
+  } else {
+    delete STATE.filesByCode[code];
+    const statusEl   = $('docStatus_'   + code);
+    const fileNameEl = $('docFileName_' + code);
+    const btnEl      = document.querySelector('#docCard_' + code + ' .btn-file');
+    const vigWrap    = $('docVigWrap_'  + code);
+    if (fileNameEl) fileNameEl.textContent = '';
+    if (statusEl)  { statusEl.className = 'doc-status pending'; statusEl.innerHTML = '<svg viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4"/></svg> Pendiente'; }
+    if (btnEl)     { btnEl.innerHTML = SVG.upload + ' Subir PDF'; btnEl.title = ''; }
+    if (vigWrap)   {
+      vigWrap.classList.add('hidden');
+      dtpClear(code);
+    }
+    const removeBtn = $('docRemoveBtn_' + code);
+    if (removeBtn) removeBtn.style.display = 'none';
+
+    const input = $('docInput_' + code);
+    if (input) input.value = '';
+  }
+
+}
+
+function updateMultiDocStatus(code) {
+  const arr        = STATE.filesMultiByCode[code] || [];
+  const statusEl   = $('docStatus_'   + code);
+  const fileNameEl = $('docFileName_' + code);
+
+  if (statusEl) {
+    statusEl.className = arr.length ? 'doc-status ok' : 'doc-status pending';
+    statusEl.innerHTML = arr.length
+      ? SVG.check + ' Listo'
+      : '<svg viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4"/></svg> Pendiente';
+  }
+
+  if (fileNameEl) {
+    fileNameEl.innerHTML = arr.length
+      ? arr.map((f, i) => `
+          <span class="eeff-file-item">
+            <span title="${escHtml(f.name)}">${escHtml(f.name)}</span>
+            <button type="button" class="eeff-file-remove" onclick="removeEeffFile(${i})" title="Quitar">✕</button>
+          </span>`
+        ).join('')
+      : '';
+  }
+
+  const removeBtn = $('docRemoveBtn_' + code);
+  if (removeBtn) removeBtn.style.display = arr.length ? '' : 'none';
+
+  // Inhabilitar botón subir si llegó al límite
+  const btnFile = document.querySelector('#eeff_picker .btn-file');
+  if (btnFile) {
+    const atLimit = arr.length >= 3;
+    btnFile.disabled = atLimit;
+    btnFile.style.opacity = atLimit ? '.4' : '';
+    btnFile.style.cursor  = atLimit ? 'not-allowed' : '';
+  }
+}
+function removeEeffFile(idx) {
+  if (!STATE.filesMultiByCode['ESTADOS_FIN']) return;
+  STATE.filesMultiByCode['ESTADOS_FIN'].splice(idx, 1);
+  updateMultiDocStatus('ESTADOS_FIN');
+  const input = $('docInput_ESTADOS_FIN');
+  if (input) input.value = '';
+}
+
+/* ═══════════════════════════════════════
+   validateStep
+═══════════════════════════════════════ */
+function validateStep(n) {
+  const v   = id => ($(id) || {}).value || '';
+  const chk = id => ($(id) || {}).checked;
+
+  function markError(id, msg) {
+    const el = $(id);
+    if (el) el.classList.add('input-error');
+    showValidationModal(msg);
+  }
+
+  if (n === 1) {
+    if (!v('tipo_solicitud')) {
+      showValidationModal('Selecciona el <strong>tipo de solicitud</strong>.');
+      return false;
+    }
+    if (!STATE.selectedCentros || !STATE.selectedCentros.length) {
+      showValidationModal('Selecciona al menos un <strong>centro</strong>.');
+      return false;
+    }
+    return true;
+  }
+
+  if (n === 2) {
+    const razonVal = v('razon_social').trim();
+    const nitVal = v('nit').trim();
+    const tieneRUT = !!STATE.filesByCode['RUT'];
+    const tieneCamara = !!STATE.filesByCode['CERT_EXISTENCIA'];
+
+    if (!tieneRUT || !tieneCamara || !razonVal || !nitVal) {
+      const dz = $('iaDropzone2');
+      if (dz) {
+        dz.classList.add('input-error');
+        dz.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      if (!tieneRUT && !tieneCamara) {
+        showValidationModal('📄 <strong>Documentos obligatorios requeridos</strong><br><br>Debes subir obligatoriamente tu <strong>RUT</strong> y tu <strong>Certificado de Cámara de Comercio</strong> en PDF para que la IA determine y verifique de forma oficial la <strong>Razón Social</strong> y el <strong>NIT</strong> de la empresa.');
+      } else if (!tieneRUT) {
+        showValidationModal('📄 <strong>RUT obligatorio requerido</strong><br><br>Has adjuntado la Cámara de Comercio, pero aún falta subir el <strong>RUT</strong> oficial de la empresa en formato PDF.');
+      } else if (!tieneCamara) {
+        showValidationModal('📄 <strong>Cámara de Comercio obligatoria requerida</strong><br><br>Has adjuntado el RUT, pero aún falta subir el <strong>Certificado de Existencia y Representación Legal (Cámara de Comercio)</strong> en formato PDF.');
+      } else {
+        showValidationModal('📄 <strong>Verificación requerida</strong><br><br>No se pudieron determinar la Razón Social y el NIT de los documentos adjuntos. Por favor, asegúrate de subir archivos PDF legibles y vigentes del RUT y Cámara de Comercio.');
+      }
+      return false;
+    }
+
+    const checks1 = [
+      ['razon_social',     'Razón Social'],
+      ['nombre_comercial', 'Nombre comercial'],
+      ['nit',              'NIT'],
+      ['direccion',        'Dirección'],
+      ['ciudad',           'Ciudad'],
+      ['departamento',     'Departamento'],
+      ['nombre_rep_legal', 'Nombre del representante legal'],
+    ];
+    for (const [id, label] of checks1) {
+      if (!v(id).trim()) {
+        markError(id, `El campo <strong>${label}</strong> es obligatorio.`);
+        return false;
+      }
+    }
+    if (!v('tipo_id_rep').trim()) {
+      $('csel_tipo_id_trigger') && $('csel_tipo_id_trigger').classList.add('input-error');
+      showValidationModal('Selecciona el <strong>Tipo de identificación</strong> del representante.');
+      return false;
+    }
+    const checks2 = [
+      ['num_id_rep', 'Número de identificación'],
+      ['cargo_rep',  'Cargo del representante legal'],
+    ];
+    for (const [id, label] of checks2) {
+      if (!v(id).trim()) {
+        markError(id, `El campo <strong>${label}</strong> es obligatorio.`);
+        return false;
+      }
+    }
+    const telRepNum = ($('tel_rep_num') || {}).value || '';
+    if (!telRepNum.trim()) {
+      markError('tel_rep_num', 'El <strong>teléfono directo</strong> del representante es obligatorio.');
+      return false;
+    }
+    if (!v('correo_rep').trim()) {
+      markError('correo_rep', 'El campo <strong>Correo del representante legal</strong> es obligatorio.');
+      return false;
+    }
+    const fiscalChecked = document.querySelectorAll('.fiscal-check:checked').length > 0;
+    if (!fiscalChecked) {
+      showValidationModal('Selecciona al menos una opción de <strong>Responsabilidad fiscal</strong>.');
+      return false;
+    }
+    const fiscalOtroChecked = document.querySelector('.fiscal-check[value="OTRO"]:checked');
+    if (fiscalOtroChecked && !v('fiscalOtroTexto').trim()) {
+      markError('fiscalOtroTexto', 'Especifica el texto de la responsabilidad fiscal <strong>"Otro"</strong>.');
+      return false;
+    }
+    if (!v('ejecutivo_cuenta').trim()) {
+      const cselTrig = $('csel_ejecutivo_trigger');
+      if (cselTrig) cselTrig.classList.add('input-error');
+      showValidationModal('El campo <strong>Ejecutivo de cuenta</strong> es obligatorio.');
+      return false;
+    }
+    return true;
+  }
+
+  if (n === 3) {
+    const contactos = [
+      { nombre:'cont_tes_nombre', tel:'cont_tes_tel', telNum:'cont_tes_tel_num', email:'cont_tes_email', area:'Tesorería', required:true },
+      { nombre:'cont_cp_nombre',  tel:'cont_cp_tel',  telNum:'cont_cp_tel_num',  email:'cont_cp_email', area:'Cuentas por pagar', required:true },
+      { nombre:'cont_df_nombre',  tel:'cont_df_tel',  telNum:'cont_df_tel_num',  email:'cont_df_email', area:'Director Financiero', required:false },
+      { nombre:'cont_com_nombre', tel:'cont_com_tel', telNum:'cont_com_tel_num', email:'cont_com_email', area:'Comercial', required:false }
+    ];
+    for (const c of contactos) {
+      if (!c.required) continue; // Saltar validación si no es requerido
+      const telNumVal = ($(c.telNum) || {}).value || '';
+        if (!telNumVal.trim()) {
+          markError(c.telNum, `El <strong>teléfono del contacto de ${c.area}</strong> es obligatorio.`);
+          return false;
+        }
+      if (!v(c.email).trim()) {
+        markError(c.email, `El <strong>e-mail del contacto de ${c.area}</strong> es obligatorio.`);
+        return false;
+      }
+    }
+    if (!v('fact_fecha_corte').trim()) {
+      markError('fact_fecha_corte', 'El campo <strong>Fecha de corte para radicación</strong> es obligatorio.');
+      return false;
+    }
+    if (!v('fact_docs_req').trim()) {
+      markError('fact_docs_req', 'El campo <strong>Documentos adicionales solicitados para radicación de facturas</strong> es obligatorio.');
+      return false;
+    }
+    if (!v('fact_email').trim()) {
+      markError('fact_email', 'El <strong>e-mail de facturación electrónica</strong> es obligatorio.');
+      return false;
+    }
+    return true;
+  }
+
+  if (n === 4) {
+    const faltantes = DOCS_REQUERIDOS_FIJOS.filter(doc => {
+      if (doc.codigo === 'ESTADOS_FIN') {
+        if (STATE.eeffMode === 'CARTA') {
+          return !STATE.filesByCode['CARTA_SIN_EEFF'];
+        }
+        return !(STATE.filesMultiByCode['ESTADOS_FIN'] &&
+                 STATE.filesMultiByCode['ESTADOS_FIN'].length > 0);
+      }
+      if (doc.codigo === 'CEDULA_REP') {
+        if (STATE.cedulaMode === 'CARTA') {
+          return !STATE.filesByCode['CARTA_SIN_CEDULA'];
+        }
+        return !STATE.filesByCode['CEDULA_REP'];
+      }
+      return !STATE.filesByCode[doc.codigo];
+    });
+    if (faltantes.length) {
+      showValidationModal(
+        'Faltan los siguientes documentos obligatorios:<br><br>' +
+        faltantes.map(d => `• <strong>${escHtml(d.nombre)}</strong>`).join('<br>')
+      );
+      return false;
+    }
+    for (const code of Object.keys(DOC_VIGENCIA)) {
+      if (!STATE.filesByCode[code]) continue;
+      const val = ($('docVigDate_' + code) || {}).value || '';
+      const doc = DOCS_REQUERIDOS_FIJOS.find(d => d.codigo === code)
+               || DOCS_OPCIONALES.find(d => d.codigo === code);
+      const docNombre = escHtml(doc ? doc.nombre : code);
+      if (!val) {
+        const trigEl = $('dtpTrigger_' + code);
+        if (trigEl) trigEl.classList.add('input-error');
+        showValidationModal(
+          `Debes ingresar la <strong>fecha de vigencia</strong> del documento: ${docNombre}`
+        );
+        return false;
+      }
+      if (!validateVigencia(code, val)) {
+        const msgError = ($('docVigError_' + code) || {}).textContent || 'Fecha de vigencia no válida.';
+        showValidationModal(
+          `La fecha del documento <strong>${docNombre}</strong> es inválida: ${msgError}`
+        );
+        return false;
+      }
+    }
+    if (chk('es_filial')) {
+      if (!v('filial_razon_social').trim()) {
+        markError('filial_razon_social', 'La <strong>Razón social de la filial</strong> es obligatoria.');
+        return false;
+      }
+      if (!v('filial_nit').trim()) {
+        markError('filial_nit', 'El <strong>NIT de la filial</strong> es obligatorio.');
+        return false;
+      }
+    }
+    return true;
+  }
+
+  if (n === 5) {
+    if (!chk('acepta')) {
+      showValidationModal('Debes aceptar los <strong>términos y condiciones</strong>.');
+      return false;
+    }
+    return true;
+  }
+
+  return true;
+}
+
+function renderDocsSlotsAdicionales() {
+  const grid = $('docsList');
+  if (!grid) return;
+
+  // Contenedor de adicionales
+  let container = $('docsAdicionales');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'docsAdicionales';
+    container.className = 'docs-adicionales-container';
+    grid.appendChild(container);
+  }
+
+  // Botón agregar
+  let btnWrap = $('docsAddWrap');
+  if (!btnWrap) {
+    btnWrap = document.createElement('div');
+    btnWrap.id = 'docsAddWrap';
+    btnWrap.className = 'doc-card btn-add-doc-wrap'; // ← ocupa una celda del grid
+    grid.appendChild(btnWrap);
+  }
+  // Siempre actualizar para reflejar el límite dinámicamente
+  const _maxAdicionales = 2;
+  const _countActivos = (STATE.docsAdicionales || []).filter(x => x !== null).length;
+  btnWrap.innerHTML = _countActivos < _maxAdicionales
+    ? `<button type="button" class="btn-add-doc" onclick="agregarDocAdicional()">
+         + Agregar otro documento
+       </button>`
+    : '';
+  btnWrap.style.display = _countActivos < _maxAdicionales ? '' : 'none';
+
+  // Restaurar slots adicionales ya existentes
+  (STATE.docsAdicionales || []).forEach((_, idx) => {
+    if (!$('docCard_ADICIONAL_' + idx)) {
+      _insertarSlotAdicional(idx);
+    }
+  });
+}
+
+function agregarDocAdicional() {
+  if (!STATE.docsAdicionales) STATE.docsAdicionales = [];
+  const _countActivos = STATE.docsAdicionales.filter(x => x !== null).length;
+  if (_countActivos >= 2) return;
+  const idx = STATE.docsAdicionales.length;
+  STATE.docsAdicionales.push({ file: null });
+  _insertarSlotAdicional(idx);
+  renderDocsSlotsAdicionales(); // actualiza/oculta el botón
+}
+
+function _insertarSlotAdicional(idx) {
+  const code = 'ADICIONAL_' + idx;
+  const container = $('docsAdicionales');
+  if (!container) return;
+
+  const card = document.createElement('div');
+  card.innerHTML = buildDocCard(code, 'Documento adicional ' + (idx + 1), false, '', false);
+
+  // Agregar botón eliminar dentro del card
+  const docCard = card.firstElementChild;
+  docCard.style.animation = 'slideUpBox .22s ease';
+  const actionsEl = docCard.querySelector('.doc-actions');
+  const removeBtn = document.createElement('button');
+  removeBtn.type = 'button';
+  removeBtn.className = 'btn-remove-doc';
+  removeBtn.title = 'Eliminar';
+  removeBtn.innerHTML = '✕';
+  removeBtn.onclick = () => eliminarDocAdicional(idx);
+  actionsEl.appendChild(removeBtn);
+
+  container.appendChild(docCard);
+}
+
+function eliminarDocAdicional(idx) {
+  const code = 'ADICIONAL_' + idx;
+  const card = $('docCard_' + code);
+  if (card) card.remove();
+  delete STATE.filesByCode[code];
+  if (STATE.docsAdicionales) STATE.docsAdicionales[idx] = null;
+
+  // Limpiar container DOM completamente y redibujar desde STATE limpio
+  const container = $('docsAdicionales');
+  if (container) container.innerHTML = '';
+
+  // Compactar array eliminando nulos
+  STATE.docsAdicionales = (STATE.docsAdicionales || []).filter(x => x !== null);
+
+  // Limpiar filesByCode de adicionales huérfanos y reasignar índices
+  const newFiles = {};
+  Object.keys(STATE.filesByCode).forEach(k => {
+    if (!k.startsWith('ADICIONAL_')) newFiles[k] = STATE.filesByCode[k];
+  });
+  STATE.docsAdicionales.forEach((_, i) => {
+    const oldCode = 'ADICIONAL_' + i;
+    if (STATE.filesByCode[oldCode]) newFiles[oldCode] = STATE.filesByCode[oldCode];
+  });
+  STATE.filesByCode = newFiles;
+
+  renderDocsSlotsAdicionales();
+}
+
+function validateVigencia(code, val) {
+  const cfg     = DOC_VIGENCIA[code];
+  const errorEl = $('docVigError_' + code);
+  const trigger = $('dtpTrigger_'  + code);
+  if (!cfg || !errorEl || !trigger) return true;
+
+  if (!val) {
+    errorEl.textContent = 'La fecha es obligatoria.';
+    errorEl.classList.remove('hidden');
+    trigger.classList.add('input-error');
+    return false;
+  }
+
+  // Parsear DD/MM/AAAA
+  const parts = val.split('/');
+  if (parts.length !== 3) return false;
+  const fechaDoc = new Date(+parts[2], +parts[1] - 1, +parts[0]);
+  fechaDoc.setHours(0, 0, 0, 0);
+
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+
+  const diffDias = Math.floor((hoy - fechaDoc) / 86400000);
+
+  if (diffDias < 0) {
+    errorEl.textContent = 'La fecha no puede ser futura.';
+    errorEl.classList.remove('hidden');
+    trigger.classList.add('input-error');
+    return false;
+  }
+
+  if (diffDias > cfg.dias) {
+    errorEl.textContent = `Documento vencido (${diffDias} días). Máximo permitido: ${cfg.dias} días.`;
+    errorEl.classList.remove('hidden');
+    trigger.classList.add('input-error');
+    return false;
+  }
+
+  errorEl.classList.add('hidden');
+  errorEl.textContent = '';
+  trigger.classList.remove('input-error');
+  return true;
+}
+
+/* ═══════════════════════════════════════
+   Date Picker personalizado
+═══════════════════════════════════════ */
+const DTP_STATE = {};
+
+function dtpInit(code) {
+  const today = new Date();
+  DTP_STATE[code] = {
+    year:     today.getFullYear(),
+    month:    today.getMonth(),   // 0-based
+    selected: null                // { y, m, d }
+  };
+}
+
+function dtpOpen(code) {
+  // Cerrar cualquier otro abierto
+  document.querySelectorAll('.dtp-panel.open').forEach(p => {
+    if (p.id !== 'dtpPanel_' + code) p.classList.remove('open');
+  });
+  if (!DTP_STATE[code]) dtpInit(code);
+  dtpRender(code);
+  const panel = $('dtpPanel_' + code);
+  panel.classList.toggle('open');
+}
+
+function dtpRender(code) {
+  const s      = DTP_STATE[code];
+  const today  = new Date();
+  today.setHours(0, 0, 0, 0);
+  const cfg    = DOC_VIGENCIA[code];
+
+  // Nav: prev siempre habilitado, next deshabilitado si mes >= hoy
+  const prevBtn = $('dtpPrev_' + code);
+  const nextBtn = $('dtpNext_' + code);
+  const isCurrentMonth = s.year === today.getFullYear() && s.month === today.getMonth();
+  if (nextBtn) nextBtn.disabled = isCurrentMonth;
+
+  // Título mes/año
+  const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio',
+                 'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const titleEl = $('dtpTitle_' + code);
+  if (titleEl) titleEl.textContent = MESES[s.month] + ' ' + s.year;
+
+  // Construir días
+  const firstDay = new Date(s.year, s.month, 1).getDay(); // 0=Dom
+  const daysInMonth = new Date(s.year, s.month + 1, 0).getDate();
+  const daysInPrev  = new Date(s.year, s.month, 0).getDate();
+
+  // Ajustar: semana empieza en lunes
+  const startOffset = (firstDay + 6) % 7;
+
+  let html = '';
+  // Días mes anterior
+  for (let i = startOffset - 1; i >= 0; i--) {
+    html += `<button type="button" class="dtp-day other-month" disabled>${daysInPrev - i}</button>`;
+  }
+  // Días del mes
+  for (let d = 1; d <= daysInMonth; d++) {
+    const date = new Date(s.year, s.month, d);
+    date.setHours(0, 0, 0, 0);
+
+    const isFuture   = date > today;
+    const isToday    = date.getTime() === today.getTime();
+    const isSelected = s.selected &&
+                       s.selected.y === s.year &&
+                       s.selected.m === s.month &&
+                       s.selected.d === d;
+
+    let cls = 'dtp-day';
+    if (isToday)    cls += ' today';
+    if (isSelected) cls += ' selected';
+
+    let isExpired = false;
+    if (cfg && cfg.dias) {
+      const diffDias = Math.floor((today - date) / 86400000);
+      if (diffDias > cfg.dias) {
+        isExpired = true;
+      }
+    }
+    const disabled = (isFuture || isExpired) ? 'disabled' : '';
+    html += `<button type="button" class="${cls}" ${disabled}
+               onclick="dtpSelect('${code}', ${s.year}, ${s.month}, ${d})">${d}</button>`;
+  }
+  // Completar grid con días mes siguiente
+  const total = startOffset + daysInMonth;
+  const remainder = total % 7 === 0 ? 0 : 7 - (total % 7);
+  for (let d = 1; d <= remainder; d++) {
+    html += `<button type="button" class="dtp-day other-month" disabled>${d}</button>`;
+  }
+
+  const daysEl = $('dtpDays_' + code);
+  if (daysEl) daysEl.innerHTML = html;
+}
+
+function dtpPrev(code) {
+  const s = DTP_STATE[code];
+  if (s.month === 0) { s.month = 11; s.year--; }
+  else { s.month--; }
+  dtpRender(code);
+}
+
+function dtpNext(code) {
+  const s     = DTP_STATE[code];
+  const today = new Date();
+  if (s.year === today.getFullYear() && s.month === today.getMonth()) return;
+  if (s.month === 11) { s.month = 0; s.year++; }
+  else { s.month++; }
+  dtpRender(code);
+}
+
+function dtpSelect(code, y, m, d) {
+  const s   = DTP_STATE[code];
+  s.selected = { y, m, d };
+
+  const dd   = String(d).padStart(2, '0');
+  const mm   = String(m + 1).padStart(2, '0');
+  const yyyy = String(y);
+  const formatted = `${dd}/${mm}/${yyyy}`;
+
+  // Actualizar hidden y trigger
+  const hidden  = $('docVigDate_' + code);
+  const trigger = $('dtpTrigger_' + code);
+  if (hidden)  hidden.value = formatted;
+  STATE.vigencias = STATE.vigencias || {};
+  STATE.vigencias[code] = formatted;
+  if (trigger) {
+    trigger.classList.remove('input-error');
+    trigger.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 20 20" fill="none">
+        <rect x="2" y="3" width="16" height="15" rx="2" stroke="currentColor" stroke-width="1.5"/>
+        <line x1="2" y1="8" x2="18" y2="8" stroke="currentColor" stroke-width="1.5"/>
+        <line x1="7" y1="2" x2="7" y2="5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="13" y1="2" x2="13" y2="5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      ${formatted}`;
+  }
+
+  // Cerrar panel y validar
+  $('dtpPanel_' + code).classList.remove('open');
+  validateVigencia(code, formatted);
+  dtpRender(code);
+}
+
+function dtpClear(code) {
+  if (DTP_STATE[code]) DTP_STATE[code].selected = null;
+  const hidden  = $('docVigDate_' + code);
+  const trigger = $('dtpTrigger_' + code);
+  if (hidden)  hidden.value = '';
+  if (trigger) trigger.innerHTML = `
+    <svg width="14" height="14" viewBox="0 0 20 20" fill="none">
+      <rect x="2" y="3" width="16" height="15" rx="2" stroke="currentColor" stroke-width="1.5"/>
+      <line x1="2" y1="8" x2="18" y2="8" stroke="currentColor" stroke-width="1.5"/>
+      <line x1="7" y1="2" x2="7" y2="5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      <line x1="13" y1="2" x2="13" y2="5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+    <span class="dtp-placeholder">dd/mm/aaaa</span>`;
+  if (STATE.vigencias) delete STATE.vigencias[code];
+  const errorEl = $('docVigError_' + code);
+  if (errorEl) { errorEl.textContent = ''; errorEl.classList.add('hidden'); }
+  dtpRender(code);
+}
+
+// Cerrar al click fuera
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.dtp-wrap')) {
+    document.querySelectorAll('.dtp-panel.open').forEach(p => p.classList.remove('open'));
+  }
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Autocompletado con Gemini IA en el Formulario
+   ───────────────────────────────────────────────────────────────────────── */
+
+function handleIaDragOver(e, stepNum = 2) {
+  e.preventDefault();
+  e.stopPropagation();
+  const dzId = stepNum === 1 ? 'iaDropzone1' : 'iaDropzone2';
+  const dz = $(dzId);
+  if (dz) dz.classList.add('dragover');
+}
+
+function handleIaDragLeave(e, stepNum = 2) {
+  e.preventDefault();
+  e.stopPropagation();
+  const dzId = stepNum === 1 ? 'iaDropzone1' : 'iaDropzone2';
+  const dz = $(dzId);
+  if (dz) dz.classList.remove('dragover');
+}
+
+function handleIaDrop(e, stepNum = 2) {
+  e.preventDefault();
+  e.stopPropagation();
+  const dzId = stepNum === 1 ? 'iaDropzone1' : 'iaDropzone2';
+  const dz = $(dzId);
+  if (dz) {
+    dz.classList.remove('dragover');
+    dz.classList.remove('input-error');
+  }
+
+  const files = Array.from(e.dataTransfer.files || []).filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+  if (files.length > 0) {
+    processFilesWithGeminiIa(files, stepNum);
+  } else {
+    showValidationModal('📄 <strong>Formato no válido</strong><br><br>Debes adjuntar únicamente archivos en formato <strong>PDF</strong> (ej: RUT o Certificado de Cámara de Comercio).');
+  }
+}
+
+function handleIaFileSelect(e) {
+  const files = Array.from(e.target.files || []).filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+  const stepNum = e.target.id === 'iaFileInput2' ? 2 : 1;
+  const dz = $(stepNum === 1 ? 'iaDropzone1' : 'iaDropzone2');
+  if (dz) dz.classList.remove('input-error');
+  if (files.length > 0) {
+    processFilesWithGeminiIa(files, stepNum);
+  } else if (e.target.files && e.target.files.length > 0) {
+    showValidationModal('📄 <strong>Formato no válido</strong><br><br>Debes adjuntar únicamente archivos en formato <strong>PDF</strong> (ej: RUT o Certificado de Cámara de Comercio).');
+  }
+  e.target.value = '';
+}
+
+/**
+ * Despliega un aviso emergente (Toast/Azulejo) duradero en la parte superior derecha
+ * perfectamente integrado con el diseño y paleta de colores del formulario (CupoFlow).
+ */
+function showAutofillToast(msgHtml) {
+  let toast = $('_iaAutofillToast');
+  if (toast) toast.remove();
+
+  toast = document.createElement('div');
+  toast.id = '_iaAutofillToast';
+  toast.style.cssText = `
+    position: fixed; top: 24px; right: 24px; z-index: 9999;
+    display: flex; align-items: flex-start; gap: 12px;
+    background: linear-gradient(135deg, #ffffff 0%, #f8fcfc 100%);
+    color: var(--navy, #487b71);
+    padding: 16px 20px; border-radius: 14px;
+    font-family: 'Outfit', sans-serif; font-size: 13px; font-weight: 400;
+    box-shadow: 0 14px 35px rgba(72, 123, 113, 0.16), 0 2px 6px rgba(0, 0, 0, 0.04);
+    border: 1px solid rgba(202, 113, 31, 0.35);
+    border-left: 5px solid var(--gold, #ca711f);
+    max-width: 400px; line-height: 1.5;
+    animation: slideUpToast 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    backdrop-filter: blur(8px);
+  `;
+  toast.innerHTML = `
+    <div style="flex:1;">${msgHtml}</div>
+    <button type="button" onclick="this.parentElement.remove()" style="background:none;border:none;color:#9a9a9a;cursor:pointer;font-size:18px;line-height:1;padding:0;margin-left:6px;transition:color .2s;" onmouseover="this.style.color='var(--navy,#487b71)'" onmouseout="this.style.color='#9a9a9a'" title="Cerrar">&times;</button>
+  `;
+  document.body.appendChild(toast);
+  setTimeout(() => {
+    if (toast && toast.parentElement) {
+      toast.style.transition = 'opacity 0.4s ease, transform 0.4s ease';
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateY(-12px)';
+      setTimeout(() => toast.remove(), 400);
+    }
+  }, 12000);
+}
+
+/**
+ * Lee los archivos PDF en Base64, los envía al backend y rellena dinámicamente los campos del formulario.
+ */
+function processFilesWithGeminiIa(files, stepNum = 2) {
+  // Solo validar que sean PDFs válidos - la validación de contenido la hace la IA
+  const dzNum = stepNum === 1 ? 1 : 2;
+  const contentElId = 'iaDropzoneContent' + dzNum;
+  const loadingElId = 'iaDropzoneLoading' + dzNum;
+  const bannerElId  = 'iaSuccessBanner' + dzNum;
+
+  const contentEl = $(contentElId);
+  const loadingEl = $(loadingElId);
+  const bannerEl  = $(bannerElId);
+
+  if (contentEl) contentEl.classList.add('hidden');
+  if (loadingEl) loadingEl.classList.remove('hidden');
+  if (bannerEl)  bannerEl.classList.add('hidden');
+
+  // Convertir archivos a Base64
+  const promises = files.map(file => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        resolve({
+          name: file.name,
+          base64: reader.result,
+          rawFile: file
+        });
+      };
+      reader.onerror = err => reject(err);
+      reader.readAsDataURL(file);
+    });
+  });
+
+  Promise.all(promises).then(b64Files => {
+    // Validación previa: Verificar cantidad de archivos (máximo 2)
+    if (b64Files.length > 2) {
+      if (loadingEl) loadingEl.classList.add('hidden');
+      if (contentEl) contentEl.classList.remove('hidden');
+      showValidationModal('📄 <strong>Demasiados documentos</strong><br><br>En el autocompletado solo puedes subir <strong>máximo 2 documentos</strong>:<br><br>• <strong>RUT</strong> (DIAN)<br>• <strong>Certificado de Cámara de Comercio</strong><br><br>Has subido ' + b64Files.length + ' archivo(s). Por favor, sube solo los dos documentos requeridos.');
+      return;
+    }
+
+    // Llamar al backend para la extracción documental
+    // La IA verificará el CONTENIDO de los archivos y rechazará documentos no permitidos
+    const payloadFiles = b64Files.map(f => ({ name: f.name, base64: f.base64 }));
+
+    google.script.run
+      .withSuccessHandler(resultado => {
+        if (loadingEl) loadingEl.classList.add('hidden');
+        if (contentEl) contentEl.classList.remove('hidden');
+
+        // Validar si la IA detectó un documento no válido por su CONTENIDO
+        if (!resultado || resultado.es_documento_valido === false) {
+          const tipoDetectado = resultado && resultado.tipo_documento_detectado ? resultado.tipo_documento_detectado : 'OTRO';
+          showValidationModal('📄 <strong>Documento no válido detectado</strong><br><br>La IA analizó el <strong>contenido</strong> del archivo y determinó que <strong>no corresponde</strong> a un RUT oficial (DIAN) ni a un Certificado de Cámara de Comercio.<br><br>Asegúrate de subir únicamente:<br>• El <strong>RUT</strong> (debe contener "Registro Único Tributario" o formulario oficial DIAN)<br>• El <strong>Certificado de Existencia y Representación Legal</strong> (debe indicar que fue emitido por una Cámara de Comercio)<br><br><em>El nombre del archivo no importa — lo que importa es el contenido del documento.</em>');
+          return;
+        }
+
+        // Marcar que el usuario usó la funcionalidad de autocompletado
+        STATE.usedAutofillFeature = true;
+
+        // Asignar archivos a RUT o CERT_EXISTENCIA basado ÚNICAMENTE en lo que la IA detectó en el contenido
+        // Si hay múltiples archivos, la IA puede haber analizado ambos y retornado el tipo del documento principal
+        if (b64Files.length === 1) {
+          // Un solo archivo: asignarlo según lo que detectó la IA
+          const tipoDet = (resultado.tipo_documento_detectado || '').toUpperCase();
+          if (tipoDet === 'RUT') {
+            STATE.filesByCode['RUT'] = b64Files[0].rawFile;
+          } else if (tipoDet === 'CAMARA_COMERCIO') {
+            STATE.filesByCode['CERT_EXISTENCIA'] = b64Files[0].rawFile;
+          }
+        } else if (b64Files.length === 2) {
+          // Dos archivos: la IA analizó ambos y retorna el tipo de cada uno
+          const tipo1 = (resultado.tipo_documento_detectado || '').toUpperCase();
+          const tipo2 = (resultado.tipo_documento_detectado_2 || '').toUpperCase();
+
+          // Asignar archivo 1 según tipo detectado por la IA en su contenido
+          if (tipo1 === 'RUT') {
+            STATE.filesByCode['RUT'] = b64Files[0].rawFile;
+          } else if (tipo1 === 'CAMARA_COMERCIO') {
+            STATE.filesByCode['CERT_EXISTENCIA'] = b64Files[0].rawFile;
+          }
+
+          // Asignar archivo 2 según tipo detectado por la IA en su contenido
+          if (tipo2 === 'RUT') {
+            STATE.filesByCode['RUT'] = b64Files[1].rawFile;
+          } else if (tipo2 === 'CAMARA_COMERCIO') {
+            STATE.filesByCode['CERT_EXISTENCIA'] = b64Files[1].rawFile;
+          } else if (tipo2 === '' || tipo2 === 'OTRO') {
+            // Si no se detectó tipo2, asignar al tipo que falte
+            if (!STATE.filesByCode['RUT']) {
+              STATE.filesByCode['RUT'] = b64Files[1].rawFile;
+            } else if (!STATE.filesByCode['CERT_EXISTENCIA']) {
+              STATE.filesByCode['CERT_EXISTENCIA'] = b64Files[1].rawFile;
+            }
+          }
+        }
+
+        // VALIDACIÓN: Si solo se subió 1 archivo y falta el otro, informar al usuario
+        const tieneRUT = !!STATE.filesByCode['RUT'];
+        const tieneCertExistencia = !!STATE.filesByCode['CERT_EXISTENCIA'];
+
+        if (b64Files.length === 1 && (!tieneRUT || !tieneCertExistencia)) {
+          let faltante = !tieneRUT ? '<strong>RUT</strong> (DIAN)' : '<strong>Certificado de Cámara de Comercio</strong>';
+          showAutofillToast(`📋 <strong>Documento recibido correctamente</strong><br><br>Falta agregar: ${faltante}<br><br><em>Puedes arrastrar el segundo documento para completar el autocompletado.</em>`);
+        }
+
+        let filledCount = 0;
+
+        if (resultado && typeof resultado === 'object') {
+          // Mapeo de campos extraídos a los inputs del formulario
+          // AUTOCOMPLETADO LIMITADO: Solo datos generales de la empresa
+          if (resultado.razon_social) { setInputValue('razon_social', resultado.razon_social.toUpperCase()); filledCount++; }
+          if (resultado.nombre_comercial) { setInputValue('nombre_comercial', resultado.nombre_comercial.toUpperCase()); filledCount++; }
+          if (resultado.nit) { setInputValue('nit', resultado.nit.replace(/\D/g, '')); filledCount++; }
+          if (resultado.direccion) { setInputValue('direccion', resultado.direccion.toUpperCase()); filledCount++; }
+          if (resultado.ciudad) { setInputValue('ciudad', resultado.ciudad.toUpperCase()); filledCount++; }
+          if (resultado.departamento) { setInputValue('departamento', resultado.departamento.toUpperCase()); filledCount++; }
+
+          // Los siguientes campos NO se autocompletarán (el usuario debe completarlos manualmente):
+          // - cod_postal (ya tiene valor por defecto: 110110)
+          // - nombre_rep_legal
+          // - tipo_id_rep
+          // - num_id_rep
+          // - cargo_rep
+          // - tel_rep_num
+          // - correo_rep
+          // - monto
+          // - ejecutivo_cuenta
+          // - responsabilidad fiscal
+          // - correo_facturas
+        }
+
+        if (filledCount === 0) {
+          showValidationModal('📄 <strong>Documento sin datos reconocibles</strong><br><br>No se pudieron extraer datos de la empresa del archivo adjuntado. Por favor, <strong>revisa que el documento no tenga contraseña ni esté protegido</strong>, y asegúrate de adjuntar el <strong>RUT</strong> o <strong>Certificado de Cámara de Comercio</strong> en PDF legible.');
+          return;
+        }
+
+        const bannerText = `¡<strong>${filledCount} campos autocompletados con éxito</strong>! La Razón Social y el NIT han sido determinados por la IA.`;
+
+        const toastHtml = `
+          <div style="display:flex;align-items:center;gap:7px;font-size:14px;font-weight:700;color:var(--navy,#487b71);margin-bottom:3px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--gold,#ca711f)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4L12 2z"/></svg>
+            <span>¡${filledCount} campos autocompletados!</span>
+          </div>
+          <div style="color:var(--text,#606060);font-size:12.5px;line-height:1.4;">
+            Razón Social y NIT determinados por la IA. Puedes revisar y ajustar los demás datos.
+          </div>
+        `;
+
+        // Mostrar banner en la tarjeta del paso correspondiente
+        if (bannerEl) {
+          bannerEl.classList.remove('hidden');
+          const txtElId = 'iaSuccessText' + dzNum;
+          const txtEl = $(txtElId);
+          if (txtEl) txtEl.innerHTML = bannerText;
+        }
+
+        // Mostrar Pop-up / Azulejo emergente elegante del sistema
+        showAutofillToast(toastHtml);
+      })
+      .withFailureHandler(err => {
+        if (loadingEl) loadingEl.classList.add('hidden');
+        if (contentEl) contentEl.classList.remove('hidden');
+        const rawMsg = err ? String(err.message || err) : '';
+        let userMsg = '';
+        if (rawMsg.includes('créditos') || rawMsg.includes('prepayment') || rawMsg.includes('depleted') || rawMsg.includes('AI Studio')) {
+          userMsg = 'No se pudieron autocompletar los campos automáticamente.<br><br><strong>Los créditos de prepago de la cuenta de Google Gemini IA se han agotado.</strong><br><br>Por favor, contacta al administrador del sistema para recargar saldo en Google AI Studio o actualizar la clave de la IA.<br><br>Mientras tanto, puedes continuar diligenciando los campos del formulario manualmente.';
+        } else if (rawMsg.includes('503') || rawMsg.includes('429') || rawMsg.includes('alta demanda') || rawMsg.includes('demand') || rawMsg.includes('UNAVAILABLE')) {
+          userMsg = 'No se pudieron autocompletar los campos automáticamente.<br><br>El servicio de Inteligencia Artificial se encuentra bajo alta demanda temporal en sus servidores. Puedes continuar diligenciando el formulario manualmente o intentar adjuntar los documentos de nuevo en unos momentos.';
+        } else {
+          userMsg = 'No se pudieron autocompletar los campos automáticamente.<br><br>Por favor, <strong>revisa que el documento no tenga contraseña o esté protegido</strong>, ya que en dicho caso la IA no podrá analizarlo.<br><br>Asegúrate de que sea un archivo PDF legible (RUT o Cámara de Comercio)';
+        }
+        showValidationModal(userMsg);
+      })
+      .apiExtractFormDataFromDocs(payloadFiles);
+
+  }).catch(err => {
+    if (loadingEl) loadingEl.classList.add('hidden');
+    if (contentEl) contentEl.classList.remove('hidden');
+    showValidationModal('No se pudo procesar el archivo PDF.<br><br>Por favor, <strong>revisa que el documento no tenga contraseña o esté protegido</strong>, ya que en dicho caso la IA no podrá analizarlo.<br><br>También puedes continuar diligenciando los campos del formulario de forma manual.');
+  });
+}
+
+function setInputValue(id, val) {
+  const el = $(id);
+  if (!el || val === null || val === undefined || val === '') return;
+  
+  let cleanedVal = val;
+  if (id === 'nit') {
+    cleanedVal = String(val).replace(/\D/g, '').substring(0, 9);
+  } else if (id === 'razon_social' || id === 'nombre_comercial') {
+    cleanedVal = String(val).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9 ]/g, "");
+  }
+  
+  el.value = cleanedVal;
+  el.classList.remove('input-error');
+  el.classList.add('input-ia-autofilled');
+  setTimeout(() => el.classList.remove('input-ia-autofilled'), 3000);
+}
+
+/** Helper para actualizar visualmente la tarjeta de un documento en la pestaña Documentos */
+function updateDocStatus(code, fileName) {
+  const statusEl   = $('docStatus_'   + code);
+  const fileNameEl = $('docFileName_' + code);
+  const btnEl      = document.querySelector('#docCard_' + code + ' .btn-file');
+  const removeBtn  = $('docRemoveBtn_' + code);
+  const vigWrap    = $('docVigWrap_'  + code);
+
+  if (fileNameEl) fileNameEl.textContent = fileName;
+  if (statusEl) { statusEl.className = 'doc-status ok'; statusEl.innerHTML = SVG.check + ' Listo'; }
+  if (btnEl)    { btnEl.innerHTML = SVG.upload + ' Cambiar PDF'; }
+  if (removeBtn) removeBtn.style.display = '';
+  if (vigWrap)  vigWrap.classList.remove('hidden');
+}
+</script>

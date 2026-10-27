@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CupoFlow — Sistema de cupos de crédito</title>
+  <meta name="description" content="Portal de acceso al sistema de gestión de créditos corporativos CupoFlow">
+  <link rel="icon" type="image/x-icon" href="https://www.example.com/favicon.ico">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Balsamiq+Sans:ital,wght@0,400;0,700;1,400;1,700&family=Urbanist:wght@300;400;500;600;700;800;900&display=swap"
+    rel="stylesheet">
+  <?!= include('Styles') ?>
+</head>
+
+<body>
+
+  <!-- Cabecera / Navegación Superior -->
+  <header class="top-nav">
+    <img src="https://lh3.googleusercontent.com/d/TU_LOGO_DRIVE_ID" alt="CupoFlow" class="logo-img">
+    <button id="themeToggle" class="theme-toggle" aria-label="Cambiar tema">
+      <!-- Sun Icon (dark mode -> light mode) -->
+      <svg class="sun-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m12.728 12.728l.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z" />
+      </svg>
+      <!-- Moon Icon (light mode -> dark mode) -->
+      <svg class="moon-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+      </svg>
+    </button>
+  </header>
+
+  <!-- Animación de fondo vectorial -->
+  <canvas id="vectorCanvas" class="bg-canvas"></canvas>
+
+  <!-- Capa de superposición para contraste y lectura de textos -->
+  <div class="bg-overlay"></div>
+
+  <div class="page">
+
+    <!-- Header -->
+    <header class="header">
+      <h1 class="header-title">
+        Sistema de<br>
+        <span class="highlight">créditos CupoFlow</span>
+      </h1>
+      <p class="header-sub">
+        Accede a las herramientas del proceso de solicitud, aprobación y consulta de créditos de CupoFlow.
+      </p>
+    </header>
+
+    <!-- Cards -->
+    <div class="cards-grid" id="cardsGrid">
+
+      <!-- Card 1: Formulario -->
+      <a class="tool-card card-primary" id="cardFormulario" href="#" target="_blank" rel="noopener">
+        <button class="info-btn"
+          data-url="#manual-no-disponible"
+          data-tooltip="Ver manual del solicitante" type="button" aria-label="Ver manual del solicitante">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 16v-4"></path>
+            <path d="M12 8h.01"></path>
+          </svg>
+        </button>
+        <div class="card-icon-wrap">
+          <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="16" y1="13" x2="8" y2="13"></line>
+            <line x1="16" y1="17" x2="8" y2="17"></line>
+            <polyline points="10 9 9 9 8 9"></polyline>
+          </svg>
+        </div>
+        <span class="card-tag">Clientes y ejecutivos</span>
+        <h2 class="card-title">Formulario de Solicitud</h2>
+        <p class="card-desc">
+          Diligencia tu solicitud de crédito corporativo en minutos. Adjunta los documentos requeridos y firma
+          digitalmente.
+        </p>
+        <ul class="card-features">
+          <li>Formulario guiado paso a paso</li>
+          <li>Carga de documentos en PDF</li>
+          <li>Firma digital con verificación OTP</li>
+          <li>Seguimiento del estado de tu radicado</li>
+        </ul>
+        <div class="card-cta">
+          <span>Acceder al formulario</span>
+          <span class="arrow">→</span>
+        </div>
+      </a>
+
+      <!-- Card 2: Panel de Control -->
+      <a class="tool-card card-secondary" id="cardPanel" href="#" target="_blank" rel="noopener">
+        <div class="card-icon-wrap">
+          <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="9"></rect>
+            <rect x="14" y="3" width="7" height="5"></rect>
+            <rect x="14" y="12" width="7" height="9"></rect>
+            <rect x="3" y="16" width="7" height="5"></rect>
+          </svg>
+        </div>
+        <span class="card-tag">Área de Crédito y Cartera</span>
+        <h2 class="card-title">Panel de Administración</h2>
+        <p class="card-desc">
+          Gestiona todas las solicitudes, aprueba o rechaza créditos, genera cartas en PDF y supervisa el vencimiento de
+          documentos.
+        </p>
+        <ul class="card-features">
+          <li>Dashboard con KPIs en tiempo real</li>
+          <li>Aprobación con carta PDF automática</li>
+          <li>Análisis de documentos con IA (Gemini)</li>
+          <li>Alertas de vencimiento documental</li>
+          <li>Administración integral de solicitudes</li>
+        </ul>
+        <div class="card-cta">
+          <span>Acceder al panel</span>
+          <span class="arrow">→</span>
+        </div>
+      </a>
+
+      <!-- Card 3: Portal de Consulta -->
+      <a class="tool-card card-tertiary" id="cardOperaciones" href="#" target="_blank" rel="noopener">
+        <div class="card-icon-wrap">
+          <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+            <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
+          </svg>
+        </div>
+        <span class="card-tag">Consulta de créditos</span>
+        <h2 class="card-title">Consulta de Cupos de Crédito</h2>
+        <p class="card-desc">
+          Consulta el estado actualizado de los créditos corporativos vigentes, filtra por centro o empresa y exporta los
+          datos al instante.
+        </p>
+        <ul class="card-features">
+          <li>Directorio completo de créditos activos</li>
+          <li>Filtros por centro, estado y vigencia</li>
+          <li>Vista de vigencia documental</li>
+          <li>Exportación a CSV</li>
+        </ul>
+        <div class="card-cta">
+          <span>Consultar créditos</span>
+          <span class="arrow">→</span>
+        </div>
+      </a>
+
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <p><strong>CupoFlow</strong> · Sistema de Créditos Corporativos &nbsp;·&nbsp; Uso interno</p>
+    </footer>
+
+  </div>
+
+  <?!= include('Script') ?>
+</body>
+
+</html>

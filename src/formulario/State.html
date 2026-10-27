@@ -1,0 +1,71 @@
+<script>
+/* State.html */
+
+const CHUNK_SIZE = 256 * 1024; // 200 KB
+
+const EXTRA_OPTIONAL_DOCS = [
+  { code: 'REFERENCIAS', label: 'Carta de referencias comerciales' },
+  { code: 'OTRO_DOC',    label: 'Otro documento adicional' }
+];
+
+const DOCS_REQUERIDOS_FIJOS = [
+  { codigo:'CERT_EXISTENCIA',   nombre:'Certificado de existencia y representación legal (≤ 30 días)' },
+  { codigo:'CEDULA_REP',        nombre:'Copia cédula / cédula de extranjería del representante legal' },
+  { codigo:'RUT',               nombre:'Copia del último RUT generado completo (todas las hojas)' },
+  { codigo:'ESTADOS_FIN',       nombre:'Estados financieros de los 2 últimos años' }
+];
+
+const DOCS_OPCIONALES = [
+  { codigo:'DECL_RENTA',     nombre:'Declaración de renta del último año gravable' }
+];
+
+// 3. AGREGAR en STATE:
+const STATE = {
+  step:            1,
+  maxStep:         1,
+  catalogos:       null,
+  requeridos:      DOCS_REQUERIDOS_FIJOS,  // ← ya no es dinámico
+  filesByCode:     {},
+  filesMultiByCode:{},                     // ← nuevo para ESTADOS_FIN
+  commentsByCode:  {},
+  selectedCentros:  [],
+  started:         false,
+  submitting:      false,
+  submissionUuid:  null,
+  codigoSolicitud: null,
+  carpetaDriveId:  null,
+  emailVerified:   false,
+  ip_dispositivo:   null,
+  vigencias:            {},
+  _pendingDraftRestore: false,
+};
+
+const DRAFT_KEY = 'hd_credito_draft_v1';
+
+const SVG = {
+  doc:      `<svg viewBox="0 0 20 20" fill="none"><path d="M4 4a2 2 0 0 1 2-2h6l4 4v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4z" stroke="currentColor" stroke-width="1.5"/><path d="M12 2v4h4M7 9h6M7 12h6M7 15h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+  check:    `<svg viewBox="0 0 20 20" fill="currentColor"><path d="M16.707 5.293a1 1 0 0 1 0 1.414l-8 8a1 1 0 0 1-1.414 0l-4-4a1 1 0 1 1 1.414-1.414L8 12.586l7.293-7.293a1 1 0 0 1 1.414 0z"/></svg>`,
+  upload:   `<svg viewBox="0 0 20 20" fill="none"><path d="M10 3v10M6 7l4-4 4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 14v2a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+  warn:     `<svg viewBox="0 0 20 20" fill="currentColor"><path d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm-1-5a1 1 0 0 1 1 1v2a1 1 0 0 1-2 0v-2a1 1 0 0 1 1-1z"/></svg>`,
+  plus:     `<svg viewBox="0 0 20 20" fill="none"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
+  trash:    `<svg viewBox="0 0 20 20" fill="none"><path d="M6 7h8M8 7V5h4v2M9 10v5M11 10v5M5 7l1 9a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1l1-9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+  close:    `<svg viewBox="0 0 14 14" fill="none"><path d="M2 2l10 10M12 2 2 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
+  phone:    `<svg viewBox="0 0 20 20" fill="none"><path d="M3 5a2 2 0 0 1 2-2h1.28a1 1 0 0 1 .948.684l1.1 3.305a1 1 0 0 1-.23 1.02L7 9.2a11.05 11.05 0 0 0 3.8 3.8l1.19-1.098a1 1 0 0 1 1.02-.23l3.305 1.1A1 1 0 0 1 17 13.72V15a2 2 0 0 1-2 2h-1C7.163 17 3 12.837 3 7V5z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+  mail:     `<svg viewBox="0 0 20 20" fill="none"><path d="M2 4h16v12H2V4zm0 0 8 7 8-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  building: `<svg viewBox="0 0 20 20" fill="none"><path d="M3 18V5a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v13M1 18h18M8 8h1M11 8h1M8 12h1M11 12h1M8 16h4v2H8v-2z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+  id:       `<svg viewBox="0 0 20 20" fill="none"><rect x="2" y="4" width="16" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/><circle cx="7" cy="10" r="2" stroke="currentColor" stroke-width="1.5"/><path d="M11 9h4M11 12h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+  hashtag:  `<svg viewBox="0 0 20 20" fill="none"><path d="M4 8h12M4 12h12M8 4l-2 12M12 4l-2 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+  globe:    `<svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.5"/><path d="M10 2c-2.5 2.5-4 5-4 8s1.5 5.5 4 8M10 2c2.5 2.5 4 5 4 8s-1.5 5.5-4 8M2 10h16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+  coin:     `<svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.5"/><path d="M10 7v6M8 8.5h3a1.5 1.5 0 0 1 0 3H8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+  map:      `<svg viewBox="0 0 20 20" fill="none"><path d="M10 2a6 6 0 0 0-6 6c0 4 6 10 6 10s6-6 6-10a6 6 0 0 0-6-6z" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/></svg>`,
+  user:     `<svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="7" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M4 17a6 6 0 0 1 12 0" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+  briefcase:`<svg viewBox="0 0 20 20" fill="none"><rect x="2" y="7" width="16" height="11" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M7 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M2 12h16" stroke="currentColor" stroke-width="1.5"/></svg>`,
+  extlink:  `<svg viewBox="0 0 20 20" fill="none"><path d="M13 3h4v4M11 9l6-6M8 4H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  calendar: `<svg viewBox="0 0 20 20" fill="none"><rect x="2" y="4" width="16" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M2 9h16M7 2v4M13 2v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`
+};
+
+// Helpers globales
+const $  = id => document.getElementById(id);
+const fmt = n  => new Intl.NumberFormat('es-CO', { minimumFractionDigits: 0 }).format(n);
+const today = () => new Date().toISOString().slice(0, 10);
+</script>

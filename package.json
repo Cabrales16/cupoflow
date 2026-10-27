@@ -1,0 +1,17 @@
+{
+  "name": "cupoflow-demo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sistema de créditos para una distribuidora de materiales de construcción: demo interactiva estática",
+  "type": "module",
+  "scripts": {
+    "build": "node demo/build.mjs",
+    "serve": "node tools/serve.mjs",
+    "scan": "node tools/scan-secrets.mjs",
+    "test": "node tools/e2e/run-all.mjs",
+    "screenshots": "node tools/screenshots.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.49.0"
+  }
+}

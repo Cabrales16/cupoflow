@@ -1,0 +1,380 @@
+<script>
+/* ─────────────────────────────────────────────────────────────────────────
+   JS_Backups.html — Controlador de la vista de Copias de Seguridad (Backups)
+   CupoFlow · Panel de Control y Administración - Solicitud de Créditos
+   ───────────────────────────────────────────────────────────────────────── */
+
+// Variables globales para la restauración activa
+let selectedBackupId = '';
+let selectedBackupName = '';
+
+/**
+ * Carga la lista de copias de seguridad desde Google Drive.
+ * Muestra skeletons durante el proceso.
+ */
+function cargarBackups(forzar = false) {
+  const token = sessionStorage.getItem('hd_panel_token');
+  if (!token) return;
+
+  hide('backupsTableWrap');
+  show('backupsTableSkeleton');
+  showLoading();
+
+  google.script.run
+    .withSuccessHandler(res => {
+      hide('backupsTableSkeleton');
+      show('backupsTableWrap');
+      hideLoading();
+
+      if (res.ok) {
+        renderBackups(res.backups);
+      } else {
+        showToast('Error al cargar backups: ' + res.error, 'error');
+      }
+    })
+    .withFailureHandler(err => {
+      hide('backupsTableSkeleton');
+      show('backupsTableWrap');
+      hideLoading();
+      showToast('Error de red al consultar backups: ' + err.message, 'error');
+    })
+    .apiListarBackups({ token: token });
+}
+
+/**
+ * Renderiza la lista de copias de seguridad en la tabla.
+ *
+ * @param {Array} backups - Array de copias de seguridad.
+ */
+function renderBackups(backups) {
+  const tbody = document.getElementById('backupsTableBody');
+  const countEl = document.getElementById('backupsResultCount');
+  
+  if (!tbody) return;
+
+  if (countEl) {
+    countEl.innerText = backups.length + (backups.length === 1 ? ' copia' : ' copias');
+  }
+
+  if (backups.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="4" style="text-align:center; padding:48px; color:var(--muted);">
+          No se encontraron copias de seguridad en Google Drive.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = backups.map(b => {
+    // Determinar tipo de backup por nombre
+    let tipoText = 'Automático (Diario)';
+    let tipoClass = 'badge-synced'; // verde/azul
+    
+    if (b.name.includes('_Manual')) {
+      tipoText = 'Manual (A demanda)';
+      tipoClass = 'badge-approved'; // oro/verde
+    } else if (b.name.includes('_PreRestauracion')) {
+      tipoText = 'Prevención (Pre-Restaurar)';
+      tipoClass = 'badge-review'; // amarillo/naranja
+    }
+
+    // Formatear fecha
+    const fechaStr = formatFecha(b.created);
+
+    return `
+      <tr>
+        <td class="td-mono" style="font-weight: 600; color: var(--text); font-size: 13px;">
+          ${escHtml(b.name)}
+        </td>
+        <td class="td-mono" style="font-size: 12px; color: var(--text2);">
+          ${fechaStr}
+        </td>
+        <td>
+          <span class="badge ${tipoClass}">${tipoText}</span>
+        </td>
+        <td style="text-align: center; padding-right: 24px;">
+          <button class="btn btn-outline btn-xs" onclick="abrirFlujoRestauracion('${b.id}', '${escHtml(b.name)}')" 
+                  style="padding: 5px 10px; font-size: 11.5px; border-color: var(--danger); color: var(--danger); display: inline-flex; align-items: center; gap: 4px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 12px; height: 12px;">
+              <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+              <path d="M16 3h5v5"/>
+              <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+              <path d="M8 21H3v-5"/>
+            </svg>
+            Restaurar
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+/**
+ * Crea una copia de seguridad manual de emergencia.
+ */
+function crearBackupManual() {
+  const token = sessionStorage.getItem('hd_panel_token');
+  if (!token) return;
+
+  showLoading();
+  showToast('Generando copia de seguridad manual en Google Drive...', 'info');
+
+  google.script.run
+    .withSuccessHandler(res => {
+      hideLoading();
+      if (res.ok) {
+        showToast('Copia de seguridad manual generada con éxito.', 'success');
+        cargarBackups(true);
+      } else {
+        showToast('Error al generar backup: ' + res.error, 'error');
+      }
+    })
+    .withFailureHandler(err => {
+      hideLoading();
+      showToast('Error de red al generar backup: ' + err.message, 'error');
+    })
+    .apiCrearBackupManual({ token: token });
+}
+
+/**
+ * Abre el flujo de advertencia de restauración (Modal 1).
+ */
+function abrirFlujoRestauracion(backupId, backupName) {
+  selectedBackupId = backupId;
+  selectedBackupName = backupName;
+
+  const warnEl = document.getElementById('warnBackupName');
+  if (warnEl) {
+    warnEl.innerText = backupName;
+  }
+
+  // Mostrar primer modal (Advertencia)
+  rmCls('modalBackupAdvertencia', 'hidden');
+}
+
+/**
+ * Cierra el primer modal de advertencia.
+ */
+function cerrarBackupAdvertenciaModal() {
+  addCls('modalBackupAdvertencia', 'hidden');
+  selectedBackupId = '';
+  selectedBackupName = '';
+}
+
+/**
+ * Confirma el primer modal y pasa al segundo modal de escritura de seguridad.
+ * Envía el código de verificación por correo al administrador.
+ */
+function confirmarAdvertenciaBackup() {
+  const token = sessionStorage.getItem('hd_panel_token');
+  if (!token) return;
+
+  showLoading();
+  showToast('Enviando código de seguridad a su correo...', 'info');
+
+  google.script.run
+    .withSuccessHandler(res => {
+      hideLoading();
+      if (res.ok) {
+        // Ocultar primer modal
+        addCls('modalBackupAdvertencia', 'hidden');
+        
+        // Limpiar input y bloquear botón del segundo modal
+        const inputEl = document.getElementById('inputConfirmarBackupText');
+        if (inputEl) inputEl.value = '';
+        
+        const btnEl = document.getElementById('btnRestaurarBackupDefinitivo');
+        if (btnEl) btnEl.disabled = true;
+
+        // Mostrar segundo modal (Confirmación por código)
+        rmCls('modalBackupConfirmar', 'hidden');
+        showToast('Código de seguridad enviado a su correo.', 'success');
+      } else {
+        showToast('Error al enviar código de seguridad: ' + res.error, 'error');
+      }
+    })
+    .withFailureHandler(err => {
+      hideLoading();
+      showToast('Error de red al enviar el código de seguridad: ' + err.message, 'error');
+    })
+    .apiEnviarCodigoRestauracion({ token: token });
+}
+
+/**
+ * Reenvía el código de seguridad de restauración por correo.
+ */
+function reenviarCodigoBackup() {
+  const token = sessionStorage.getItem('hd_panel_token');
+  if (!token) return;
+
+  const btnReenviar = document.getElementById('btnReenviarCodigoBackup');
+  if (btnReenviar) btnReenviar.disabled = true;
+
+  showToast('Reenviando código de seguridad...', 'info');
+
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res.ok) {
+        showToast('Se ha reenviado un nuevo código a su correo.', 'success');
+      } else {
+        showToast('Error al reenviar código: ' + res.error, 'error');
+        if (btnReenviar) btnReenviar.disabled = false;
+      }
+    })
+    .withFailureHandler(err => {
+      showToast('Error de red al reenviar código: ' + err.message, 'error');
+      if (btnReenviar) btnReenviar.disabled = false;
+    })
+    .apiEnviarCodigoRestauracion({ token: token });
+
+  // Habilitar de nuevo el botón tras 30 segundos
+  setTimeout(() => {
+    if (btnReenviar) btnReenviar.disabled = false;
+  }, 30000);
+}
+
+/**
+ * Cierra el segundo modal de confirmación estricta.
+ */
+function cerrarBackupConfirmarModal() {
+  addCls('modalBackupConfirmar', 'hidden');
+  selectedBackupId = '';
+  selectedBackupName = '';
+}
+
+/**
+ * Valida la entrada de texto en el segundo modal para habilitar el botón.
+ */
+function validarEscrituraBackupConfirm(input) {
+  const btnEl = document.getElementById('btnRestaurarBackupDefinitivo');
+  if (!btnEl) return;
+
+  // Habilitar si es un código de 6 dígitos numéricos
+  if (/^\d{6}$/.test(input.value.trim())) {
+    btnEl.disabled = false;
+  } else {
+    btnEl.disabled = true;
+  }
+}
+
+/**
+ * Inicia el proceso definitivo de restauración mostrando el progreso en tiempo real.
+ */
+function iniciarRestauracionDefinitiva() {
+  const token = sessionStorage.getItem('hd_panel_token');
+  if (!token) return;
+
+  const codeVal = document.getElementById('inputConfirmarBackupText').value.trim();
+  if (!codeVal) {
+    showToast('Por favor ingrese el código de verificación.', 'error');
+    return;
+  }
+
+  addCls('modalBackupConfirmar', 'hidden');
+  rmCls('modalBackupRestaurando', 'hidden');
+
+  // Inicializar estado visual de los pasos
+  setStepState('BackupPre', 'active');
+  setStepState('BackupSheets', 'pending');
+  setStepState('BackupDB', 'pending');
+
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res.ok) {
+        // Todo completado con éxito
+        setStepState('BackupPre', 'success');
+        setStepState('BackupSheets', 'success');
+        setStepState('BackupDB', 'success');
+
+        showToast('Restauración completada con éxito.', 'success');
+
+        // Esperar 1.5s para que el usuario aprecie el estado completado y recargar
+        setTimeout(() => {
+          addCls('modalBackupRestaurando', 'hidden');
+          cargarBackups(true);
+          
+          // Opcional: Redirigir al dashboard para ver los datos frescos
+          if (typeof showView === 'function') {
+            showView('dashboard');
+          }
+        }, 1500);
+
+      } else {
+        // Fallo en la restauración
+        addCls('modalBackupRestaurando', 'hidden');
+        showToast('Restauración fallida: ' + res.error, 'error');
+        selectedBackupId = '';
+        selectedBackupName = '';
+      }
+    })
+    .withFailureHandler(err => {
+      addCls('modalBackupRestaurando', 'hidden');
+      showToast('Error de red al restaurar: ' + err.message, 'error');
+      selectedBackupId = '';
+      selectedBackupName = '';
+    })
+    .apiRestaurarBackup({
+      token: token,
+      backupFolderId: selectedBackupId,
+      codigoVerificacion: codeVal
+    });
+
+  // Simulación visual progresiva ya que el backend de GAS se ejecuta síncronamente en una sola llamada.
+  // Esto simula el avance de los pasos en intervalos lógicos de tiempo estimados para dar feedback al usuario.
+  setTimeout(() => {
+    // Si sigue cargando (el modal no se ha ocultado), marcar pre-backup como completado y Sheets como activo
+    const modal = document.getElementById('modalBackupRestaurando');
+    if (modal && !modal.classList.contains('hidden')) {
+      setStepState('BackupPre', 'success');
+      setStepState('BackupSheets', 'active');
+    }
+  }, 4500); // 4.5 segundos promedio para crear el pre-backup
+
+  setTimeout(() => {
+    // Si sigue cargando, marcar Sheets como completado y base de datos como activa
+    const modal = document.getElementById('modalBackupRestaurando');
+    if (modal && !modal.classList.contains('hidden')) {
+      setStepState('BackupSheets', 'success');
+      setStepState('BackupDB', 'active');
+    }
+  }, 9000); // 9 segundos promedio para restaurar Sheets
+}
+
+/**
+ * Modifica el estado visual de un paso de la restauración.
+ *
+ * @param {string} stepId - Sufijo del ID del paso ('BackupPre' | 'BackupSheets' | 'BackupDB')
+ * @param {'pending' | 'active' | 'success'} state - Estado del paso
+ */
+function setStepState(stepId, state) {
+  const bullet = document.getElementById('bullet' + stepId);
+  const label = document.getElementById('label' + stepId);
+  if (!bullet || !label) return;
+
+  if (state === 'pending') {
+    bullet.innerHTML = stepId === 'BackupPre' ? '1' : (stepId === 'BackupSheets' ? '2' : '3');
+    bullet.style.border = '2px solid var(--border2)';
+    bullet.style.background = 'var(--surface)';
+    bullet.style.color = 'var(--text2)';
+    label.style.color = 'var(--muted)';
+    label.style.fontWeight = '500';
+  } else if (state === 'active') {
+    bullet.innerHTML = `<div class="proc-step-spinner" style="width: 10px; height: 10px; margin-left:0; border-width:1.5px; border-top-color: var(--gold);"></div>`;
+    bullet.style.border = '2px solid var(--gold)';
+    bullet.style.background = 'var(--surface)';
+    bullet.style.color = 'var(--gold)';
+    label.style.color = 'var(--text)';
+    label.style.fontWeight = '600';
+  } else if (state === 'success') {
+    // Checkmark icon
+    bullet.innerHTML = `✓`;
+    bullet.style.border = '2px solid #2ecc71';
+    bullet.style.background = '#2ecc71';
+    bullet.style.color = '#fff';
+    label.style.color = '#2ecc71';
+    label.style.fontWeight = '600';
+  }
+}
+</script>

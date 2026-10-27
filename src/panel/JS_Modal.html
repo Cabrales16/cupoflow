@@ -1,0 +1,417 @@
+<script>
+/* ─────────────────────────────────────────────────────────────────────────
+   JS_Modal.html — Modal de expediente: apertura, cierre, tabs, detalle
+   CupoFlow · Panel de Control y Administración - Solicitud de Créditos
+   ───────────────────────────────────────────────────────────────────────── */
+
+// ─── Apertura y cierre ────────────────────────────────────────────────────────
+
+/**
+ * Abre el modal de expediente para el UUID indicado.
+ * Muestra skeleton mientras carga el detalle y el análisis IA desde el backend.
+ *
+ * @param {string} uuid - UUID de la solicitud a abrir.
+ */
+function abrirExpediente(uuid) {
+  if (!uuid) return;
+  const token = STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '';
+  STATE.expedienteActual     = uuid;
+  STATE.resultadoIA          = null;
+  STATE.documentosExpediente = [];
+
+  // Mostrar modal con skeleton
+  rmCls('modalExpediente', 'hidden');
+  _resetModalBody();
+  show('modalSkeleton');
+
+  // Mostrar barra de carga para llamadas asíncronas
+  showLoading(); // Para la carga del detalle
+  showLoading(); // Para la carga del análisis IA
+  showLoading(); // Para la carga de documentos
+
+  let loadedDetail = null;
+  let loadedIa = null;
+  let callsPending = 3;
+
+  const checkDone = () => {
+    callsPending--;
+    if (callsPending === 0) {
+      hide('modalSkeleton');
+      show('modalTabs');
+      show('modalExpFooterRight');
+      
+      // Renderizar detalles
+      renderDetalleExpediente(loadedDetail);
+      
+      // Renderizar IA (con acceso a STATE.documentosExpediente cargado)
+      if (loadedIa) {
+        STATE.resultadoIA = loadedIa;
+        renderResultadoIA(loadedIa);
+      } else {
+        resetIAPanel();
+      }
+
+      actualizarEstadoBotonAprobar();
+
+      show('tabContentInfo');
+      activarTab('info');
+      show('btnEditarSolicitud');
+      show('btnEliminarSolicitud');
+    }
+  };
+
+  // Cargar detalle desde el backend
+  google.script.run
+    .withSuccessHandler(detalle => {
+      loadedDetail = detalle;
+      STATE.solicitudDetalleActual = detalle;
+      hideLoading();
+      checkDone();
+    })
+    .withFailureHandler(err => {
+      hideLoading();
+      setHtml('tabContentInfo',
+        '<p style="color:var(--danger);padding:20px;">Error al cargar el expediente: ' +
+        escHtml(err.message) + '</p>'
+      );
+      loadedDetail = null;
+      checkDone();
+    })
+    .apiGetDetalleSolicitud(token, uuid);
+
+  // Cargar análisis IA estructurado desde el backend
+  google.script.run
+    .withSuccessHandler(resultadoIA => {
+      loadedIa = resultadoIA;
+      hideLoading();
+      checkDone();
+    })
+    .withFailureHandler(err => {
+      console.warn('[JS_Modal.html] Error al cargar análisis IA: ' + err.message);
+      loadedIa = null;
+      hideLoading();
+      checkDone();
+    })
+    .apiGetResultadoIA(token, uuid);
+
+  // Cargar documentos del expediente de forma concurrente
+  google.script.run
+    .withSuccessHandler(docs => {
+      STATE.documentosExpediente = docs || [];
+      hideLoading();
+      checkDone();
+    })
+    .withFailureHandler(err => {
+      console.warn('[JS_Modal.html] Error al pre-cargar documentos: ' + err.message);
+      STATE.documentosExpediente = [];
+      hideLoading();
+      checkDone();
+    })
+    .apiGetDocumentosSolicitud(token, uuid);
+}
+
+/** Cierra el modal de expediente y limpia el estado. */
+function cerrarModalExp() {
+  addCls('modalExpediente', 'hidden');
+  STATE.expedienteActual     = null;
+  STATE.resultadoIA          = null;
+  STATE.solicitudDetalleActual = null;
+  STATE.documentosExpediente = [];
+}
+
+/** Oculta todo el contenido del modal y activa el skeleton. */
+function _resetModalBody() {
+  setText('modalExpTitulo', 'Expediente');
+  setText('modalExpSubtitulo', 'Cargando información…');
+  hide('modalTabs');
+  hide('modalExpFooterRight');
+  hide('tabContentInfo');
+  hide('tabContentDocumentos');
+  hide('tabContentIa');
+  hide('btnEditarSolicitud');
+  hide('btnEliminarSolicitud');
+  _resetTabsUI();
+  resetIAPanel();
+  actualizarEstadoBotonAprobar();
+}
+
+// ─── Tabs del modal ───────────────────────────────────────────────────────────
+
+/** Elimina la clase 'active' de todos los tabs. */
+function _resetTabsUI() {
+  document.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
+}
+
+/**
+ * Activa el tab indicado (sin cambiar el contenido visible).
+ * @param {string} tabId - 'info' | 'documentos' | 'ia'
+ */
+function activarTab(tabId) {
+  _resetTabsUI();
+  const tab = document.getElementById('tab' + capitalize(tabId));
+  if (tab) tab.classList.add('active');
+}
+
+/**
+ * Cambia el tab activo y muestra su contenido correspondiente.
+ * Carga documentos al abrir la pestaña 'documentos'.
+ *
+ * @param {string} tabId - 'info' | 'documentos' | 'ia'
+ */
+function switchTab(tabId) {
+  activarTab(tabId);
+  hide('tabContentInfo');
+  hide('tabContentDocumentos');
+  hide('tabContentIa');
+  show('tabContent' + capitalize(tabId));
+
+  // Lazy-load de documentos
+  if (tabId === 'documentos' && STATE.expedienteActual) {
+    cargarDocumentos();
+  }
+}
+
+// ─── Render del detalle del expediente ───────────────────────────────────────
+
+/**
+ * Rellena los campos de información del modal con los datos de la solicitud.
+ * @param {Object|null} d - Objeto de solicitud (resultado de apiGetDetalleSolicitud).
+ */
+function renderDetalleExpediente(d) {
+  if (!d) {
+    setHtml('tabContentInfo',
+      '<p style="color:var(--muted);padding:20px;">No se encontró el expediente.</p>'
+    );
+    return;
+  }
+
+  // Header del modal
+  setText('modalExpTitulo',    d.codigo_solicitud || 'Expediente');
+  setText('modalExpSubtitulo',
+    (d.razon_social || '') +
+    (d.identificacion ? ' · NIT ' + d.identificacion : '')
+  );
+
+  // ── Empresa
+  setText('iRazonSocial',     d.razon_social);
+  setText('iNombreComercial', d.nombre_comercial || d.razon_social);
+  setText('iIdentificacion',  d.identificacion);
+  setHtml('iTipoSolicitud',   getTipoPill(d.tipo_solicitud));
+  setHtml('iEsFilial',        getFilialPill(d.es_filial));
+  setText('iCiudad',          d.ciudad);
+  setText('iDepartamento',    d.departamento);
+
+  const fiscalMap = {
+    '0-13': 'Gran contribuyente',
+    '0-15': 'Autorretenedor',
+    '0-23': 'Agente retención IVA',
+    '0-47': 'Régimen simple de tributación',
+    '48': 'Impuesto sobre las ventas IVA',
+    'R-99-PN': 'No responsable'
+  };
+  const parsedFiscal = (d.responsabilidad_fiscal || '').split(',').map(s => {
+    const code = s.trim();
+    if (code === 'OTRO' || code.indexOf('OTRO:') === 0) {
+      const texto = code.indexOf(':') > -1 ? code.slice(code.indexOf(':') + 1).trim() : '';
+      return texto ? `Otro - ${texto}` : 'Otro';
+    }
+    return fiscalMap[code] ? `${code} - ${fiscalMap[code]}` : code;
+  }).filter(Boolean).join(', ');
+  setText('iResponsabilidadFiscal', parsedFiscal || '—');
+
+  setText('iDireccion',       d.direccion || '—');
+
+  // ── Representante legal
+  setText('iRepLegal',  d.nombre_rep_legal);
+  setText('iRepId',     (d.tipo_id_rep || '') + ' ' + (d.num_id_rep || ''));
+  setText('iRepCargo',  d.cargo_rep   || '—');
+  setText('iRepCorreo', d.correo_rep  || '—');
+  setText('iRepTel',    d.tel_rep     || '—');
+
+  // ── Solicitud
+  setText('iMonto',        (d.monto && parseFloat(d.monto) > 0) ? formatMoney(d.monto, d.moneda) + ' ' + (d.moneda || '') : '—');
+  setHtml('iCentros',      getCentroChipsHtml(d.centro_codigo, 50));
+  setText('iEjecutivo',    d.ejecutivo_cuenta || '—');
+  setText('iFechaEnvio',   formatFecha(d.fecha_envio));
+  
+  // Mostrar fecha de aprobación si existe y si el estado es APROBADA o VENCIDA/VENCIDO
+  const wrapAprob = document.getElementById('iFechaAprobacionWrap');
+  if (wrapAprob) {
+    if (d.fecha_aprobacion && (d.accion === 'APROBADA' || d.accion === 'ACTIVA' || d.accion === 'VENCIDA' || d.accion === 'VENCIDO')) {
+      setText('iFechaAprobacion', formatFecha(d.fecha_aprobacion));
+      wrapAprob.style.display = 'block';
+    } else {
+      wrapAprob.style.display = 'none';
+    }
+  }
+
+  setText('iComentarios',  d.comentarios || '—');
+
+  // ── Enlace a carpeta en Drive
+  const driveLink = document.getElementById('iDriveLink');
+  if (driveLink && d.carpeta_drive_id) {
+    driveLink.href = 'https://drive.google.com/drive/folders/' + d.carpeta_drive_id;
+    driveLink.classList.remove('hidden');
+  } else if (driveLink) {
+    driveLink.classList.add('hidden');
+  }
+
+  // El análisis de IA estructurado se carga y renderiza de forma concurrente en abrirExpediente()
+}
+
+/**
+ * Habilita o deshabilita el botón de aprobación según la existencia del análisis de IA.
+ */
+function actualizarEstadoBotonAprobar() {
+  const btn = document.getElementById('btnAprobar');
+  if (!btn) return;
+
+  const d = STATE.solicitudDetalleActual;
+  const esFilial = d && (d.es_filial === 'SI' || d.es_filial === 'true' || d.es_filial === true);
+
+  if (esFilial || (STATE.resultadoIA && (STATE.resultadoIA.nit_verificado || STATE.resultadoIA.nit))) {
+    btn.disabled = false;
+    btn.title = "";
+    btn.style.opacity = "1";
+    btn.style.cursor = "pointer";
+  } else {
+    btn.disabled = true;
+    btn.title = "Debes realizar la auditoría IA antes de poder aprobar";
+    btn.style.opacity = "0.5";
+    btn.style.cursor = "not-allowed";
+  }
+}
+
+/**
+ * Abre el modal de edición de solicitud con los campos rellenados.
+ */
+function abrirEditarSolicitud() {
+  const d = STATE.solicitudDetalleActual;
+  if (!d) return;
+
+  const fields = [
+    'razon_social', 'nombre_comercial', 'identificacion', 'tipo_solicitud',
+    'direccion', 'ciudad', 'departamento', 'es_filial', 'nombre_rep_legal', 'tipo_id_rep',
+    'num_id_rep', 'cargo_rep', 'correo_rep', 'tel_rep', 'monto', 'moneda',
+    'centro_codigo', 'ejecutivo_cuenta', 'fact_email', 'comentarios'
+  ];
+
+  fields.forEach(f => {
+    const el = document.getElementById('edit_' + f);
+    if (el) {
+      if (f === 'monto') {
+        el.value = formatNumberWithDots(d[f]);
+      } else if (f === 'es_filial') {
+        el.value = d[f] || 'NO';
+      } else {
+        el.value = d[f] || '';
+      }
+    }
+  });
+
+  rmCls('modalEditarSolicitud', 'hidden');
+}
+
+/**
+ * Cierra el modal de edición de solicitud.
+ */
+function cerrarEditarSolicitud() {
+  addCls('modalEditarSolicitud', 'hidden');
+}
+
+/**
+ * Guarda los cambios de la edición llamando al backend.
+ */
+function guardarEdicionSolicitud() {
+  const d = STATE.solicitudDetalleActual;
+  if (!d) return;
+
+  const fields = [
+    'razon_social', 'nombre_comercial', 'identificacion', 'tipo_solicitud',
+    'direccion', 'ciudad', 'departamento', 'es_filial', 'nombre_rep_legal', 'tipo_id_rep',
+    'num_id_rep', 'cargo_rep', 'correo_rep', 'tel_rep', 'monto', 'moneda',
+    'centro_codigo', 'ejecutivo_cuenta', 'fact_email', 'comentarios'
+  ];
+
+  const datos = {};
+  fields.forEach(f => {
+    const el = document.getElementById('edit_' + f);
+    if (el) {
+      if (f === 'monto') {
+        datos[f] = cleanFormattedNumber(el.value);
+      } else {
+        datos[f] = el.value.trim();
+      }
+    }
+  });
+
+  if (!datos.razon_social) { showToast('Razón social es requerida.', 'error'); return; }
+  if (!datos.identificacion) { showToast('NIT / Identificación es requerido.', 'error'); return; }
+
+  mostrarModalConfirmacion({
+    titulo: 'Guardar cambios',
+    mensaje: '¿Estás seguro de que deseas guardar los cambios realizados en esta solicitud?',
+    btnAceptarText: 'Sí, guardar',
+    colorTheme: 'primary',
+    onAceptar: () => {
+      cerrarModalConfirm();
+      showLoading();
+      const token = sessionStorage.getItem('hd_panel_token') || '';
+      google.script.run
+        .withSuccessHandler(res => {
+          hideLoading();
+          if (res.ok) {
+            cerrarEditarSolicitud();
+            showToast('Solicitud actualizada con éxito.', 'success');
+            // Recargar el expediente y la vista de solicitudes
+            abrirExpediente(d.uuid);
+            if (typeof cargarSolicitudes === 'function') cargarSolicitudes(true);
+          } else {
+            showToast('Error: ' + res.error, 'error');
+          }
+        })
+        .withFailureHandler(err => {
+          hideLoading();
+          showToast('Error de comunicación: ' + err.message, 'error');
+        })
+        .apiEditarSolicitud({ token, uuid: d.uuid, datos });
+    }
+  });
+}
+
+/**
+ * Solicita confirmación antes de eliminar permanentemente la solicitud.
+ */
+function confirmarEliminarSolicitud() {
+  const d = STATE.solicitudDetalleActual;
+  if (!d) return;
+
+  mostrarModalConfirmacion({
+    titulo: 'Eliminar solicitud',
+    mensaje: `¿Estás seguro de que deseas eliminar permanentemente la solicitud de <strong>${escHtml(d.razon_social)}</strong>? Esta acción borrará el registro en Sheets y en MySQL y no se puede deshacer.`,
+    btnAceptarText: 'Sí, eliminar',
+    colorTheme: 'danger',
+    onAceptar: () => {
+      cerrarModalConfirm();
+      showLoading();
+      const token = sessionStorage.getItem('hd_panel_token') || '';
+      google.script.run
+        .withSuccessHandler(res => {
+          hideLoading();
+          if (res.ok) {
+            cerrarModalExp();
+            showToast('Solicitud eliminada con éxito.', 'success');
+            if (typeof cargarSolicitudes === 'function') cargarSolicitudes(true);
+          } else {
+            showToast('Error: ' + res.error, 'error');
+          }
+        })
+        .withFailureHandler(err => {
+          hideLoading();
+          showToast('Error de comunicación: ' + err.message, 'error');
+        })
+        .apiEliminarSolicitud({ token, uuid: d.uuid });
+    }
+  });
+}
+</script>

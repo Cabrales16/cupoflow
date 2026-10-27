@@ -1,0 +1,634 @@
+<script>
+/* ─────────────────────────────────────────────────────────────────────────
+   JS_Init.html — Estado global, inicialización, tema y sidebar
+   CupoFlow · Panel de Control y Administración - Solicitud de Créditos
+   ───────────────────────────────────────────────────────────────────────── */
+
+'use strict';
+
+// ─── Estado global del panel ─────────────────────────────────────────────────
+const STATE = {
+  solicitudes      : [],      // Cache de solicitudes cargadas
+  filtroEstado     : '',      // Chip activo en la vista de solicitudes
+  busqueda         : '',      // Texto libre de búsqueda
+  expedienteActual : null,    // UUID del expediente abierto en el modal
+  resultadoIA      : null,    // Último resultado de Gemini
+  documentosExpediente: [],   // Lista de documentos del expediente abierto
+  accionConfirm    : null,    // Acción pendiente de confirmar
+  cargando         : false,   // Flag para prevenir doble-click
+  loadingCount     : 0        // Contador para peticiones concurrentes
+};
+
+// ─── Bootstrap ───────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  initTheme();
+  
+  // Configurar formato dinámico en inputs de dinero
+  setupDynamicNumberFormat(document.getElementById('confirmMontoAprobado'), recalcularDistribucionEquitativa);
+  setupDynamicNumberFormat(document.getElementById('crud_monto'));
+  setupDynamicNumberFormat(document.getElementById('edit_monto'));
+  
+  // Tecla Enter en login
+  const loginPass = document.getElementById('loginPassword');
+  const loginMail = document.getElementById('loginEmail');
+  if (loginPass) loginPass.addEventListener('keydown', e => { if (e.key === 'Enter') iniciarSesion(); });
+  if (loginMail) loginMail.addEventListener('keydown', e => { if (e.key === 'Enter') loginPass.focus(); });
+
+  // Atajo de teclado global: Ctrl+K o Cmd+K → enfocar buscador global
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+      e.preventDefault();
+      const gs = document.getElementById('globalSearch');
+      if (gs) { gs.focus(); gs.select(); }
+    }
+    // Escape → cerrar panel de notificaciones
+    if (e.key === 'Escape') {
+      const np = document.getElementById('notifDropdown');
+      if (np && !np.classList.contains('hidden')) {
+        np.classList.add('hidden');
+        if (typeof _notifOpen !== 'undefined') window._notifOpen = false;
+      }
+    }
+  });
+
+  // Buscador global: redirige a solicitudes al escribir
+  const gs = document.getElementById('globalSearch');
+  if (gs) {
+    gs.addEventListener('input', () => {
+      const q = gs.value.trim();
+      
+      // Controlar la visibilidad de la X de limpiar y de la etiqueta Ctrl K
+      const searchClear = document.getElementById('globalSearchClear');
+      const searchKbd = document.querySelector('.ph-search-kbd');
+      if (searchClear) {
+        if (gs.value.length > 0) {
+          searchClear.style.display = 'flex';
+          if (searchKbd) searchKbd.style.display = 'none';
+        } else {
+          searchClear.style.display = 'none';
+          if (searchKbd) searchKbd.style.display = 'inline-block';
+        }
+      }
+
+      // Si se borra el texto completamente con Backspace, limpiar filtros
+      if (gs.value.length === 0) {
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput) searchInput.value = '';
+        if (typeof filtrarSolicitudes === 'function') filtrarSolicitudes();
+      } else if (q.length >= 2) {
+        // Navegar a solicitudes y aplicar el filtro
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput) { searchInput.value = q; }
+        if (document.getElementById('viewSolicitudes')) {
+          showView('solicitudes');
+          if (typeof filtrarSolicitudes === 'function') filtrarSolicitudes();
+        }
+      }
+    });
+    gs.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        const q = gs.value.trim();
+        if (q.length >= 1) {
+          const searchInput = document.getElementById('searchInput');
+          if (searchInput) searchInput.value = q;
+          showView('solicitudes');
+          if (typeof filtrarSolicitudes === 'function') filtrarSolicitudes();
+          gs.blur();
+        }
+      }
+    });
+  }
+
+  // Pre-llenar correo predeterminado del usuario Google
+  google.script.run.withSuccessHandler(email => {
+    if (email) {
+      const emailInput = document.getElementById('loginEmail');
+      if (emailInput && !emailInput.value) {
+        emailInput.value = email;
+      }
+    }
+  }).apiGetDefaultEmail();
+
+  const token = sessionStorage.getItem('hd_panel_token');
+  if (token) {
+    google.script.run
+      .withSuccessHandler(res => {
+        if (res.ok) {
+          sessionStorage.setItem('hd_user_email', res.email);
+          mostrarApp(res.nombre, res.rol);
+        } else {
+          sessionStorage.removeItem('hd_panel_token');
+          sessionStorage.removeItem('hd_user_email');
+          document.getElementById('loginScreen').style.display = 'flex';
+          document.getElementById('appLayout').style.display = 'none';
+        }
+      })
+      .withFailureHandler(() => {
+        sessionStorage.removeItem('hd_panel_token');
+        sessionStorage.removeItem('hd_user_email');
+        document.getElementById('loginScreen').style.display = 'flex';
+        document.getElementById('appLayout').style.display = 'none';
+      })
+      .apiVerificarSesion(token);
+  } else {
+    document.getElementById('loginScreen').style.display = 'flex';
+    document.getElementById('appLayout').style.display = 'none';
+  }
+
+  // Cerrar menú desplegable del catálogo personalizado si se hace click fuera
+  document.addEventListener('click', (e) => {
+    const selectWrapper = document.querySelector('.custom-select-wrapper');
+    if (selectWrapper && !selectWrapper.contains(e.target)) {
+      const options = document.getElementById('customSelectOptions');
+      if (options) {
+        options.classList.add('hidden');
+      }
+      const arrow = document.querySelector('#customSheetSelect .custom-select-arrow');
+      if (arrow) {
+        arrow.style.transform = 'rotate(0deg)';
+      }
+    }
+  });
+});
+
+// ─── Tema Dark / Light ────────────────────────────────────────────────────────
+function initTheme() {
+  applyTheme('light');
+  localStorage.setItem('hdPanelTheme', 'light');
+}
+
+function toggleTheme() {
+  const current = document.body.classList.contains('dark-mode') ? 'dark' : 'light';
+  const next    = current === 'dark' ? 'light' : 'dark';
+  applyTheme(next);
+  localStorage.setItem('hdPanelTheme', next);
+
+  if (typeof renderDashboardCharts === 'function' && STATE && STATE.kpis) {
+    renderDashboardCharts(STATE.kpis);
+  }
+}
+
+function applyTheme(theme) {
+  // El sidebar siempre tiene fondo oscuro, por eso siempre usamos el logo blanco
+  const LOGO_BLANCO = 'https://lh3.googleusercontent.com/d/TU_LOGO_DRIVE_ID';
+  if (theme === 'dark') {
+    document.body.classList.add('dark-mode');
+  } else {
+    document.body.classList.remove('dark-mode');
+  }
+  const logo = document.getElementById('logoImg');
+  if (logo) logo.src = LOGO_BLANCO;
+}
+
+// ─── Sidebar hover con delay ─────────────────────────────────────────────────
+let _sidebarTimer = null;
+
+function initSidebar() {
+  const sidebar  = document.getElementById('sidebar');
+  const mainCont = document.getElementById('mainContent');
+  if (!sidebar || !mainCont) return;
+
+  sidebar.addEventListener('mouseenter', () => {
+    // Delay de 150ms para evitar expansiones accidentales
+    _sidebarTimer = setTimeout(() => {
+      sidebar.classList.add('expanded');
+      mainCont.classList.add('sidebar-expanded');
+    }, 150);
+  });
+
+  sidebar.addEventListener('mouseleave', () => {
+    clearTimeout(_sidebarTimer);
+    sidebar.classList.remove('expanded');
+    mainCont.classList.remove('sidebar-expanded');
+  });
+
+  // Agregar click listeners a las opciones de navegación del sidebar
+  sidebar.querySelectorAll('.sb-item[data-view]').forEach(item => {
+    item.addEventListener('click', () => {
+      const view = item.getAttribute('data-view');
+      showView(view);
+    });
+  });
+}
+// ─── Auth ───────────────────────────────────────────────────────────────
+function iniciarSesion() {
+  const email    = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value.trim();
+  const btn      = document.getElementById('loginBtn');
+  const errorEl  = document.getElementById('loginError');
+
+  errorEl.style.display = 'none';
+  if (!email || !password) {
+    errorEl.textContent = 'Correo y contraseña son requeridos.';
+    errorEl.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Verificando...';
+
+  google.script.run
+    .withSuccessHandler(res => {
+      btn.disabled = false;
+      btn.textContent = 'Iniciar sesión';
+      if (res.ok) {
+        if (res.rol !== 'ADMIN') {
+          errorEl.textContent = 'Acceso denegado: este panel administrativo está restringido a administradores.';
+          errorEl.style.display = 'block';
+          return;
+        }
+        sessionStorage.setItem('hd_panel_token', res.token);
+        sessionStorage.setItem('hd_user_email', res.email);
+        mostrarApp(res.nombre, res.rol);
+      } else {
+        errorEl.textContent = res.error || 'Credenciales incorrectas.';
+        errorEl.style.display = 'block';
+      }
+    })
+    .withFailureHandler(err => {
+      btn.disabled = false;
+      btn.textContent = 'Iniciar sesión';
+      errorEl.textContent = 'Error de conexión. Intenta de nuevo.';
+      errorEl.style.display = 'block';
+    })
+    .apiLogin(email, password);
+}
+
+function mostrarApp(nombre, rol) {
+  const screen = document.getElementById('loginScreen');
+  screen.classList.add('fade-out');
+  setTimeout(() => { screen.style.display = 'none'; }, 400);
+  document.getElementById('appLayout').style.display = 'flex';
+  
+  // Ocultar canvas animado de fondo al entrar al sistema
+  const bgCanvas = document.getElementById('bgCanvas');
+  if (bgCanvas) bgCanvas.style.display = 'none';
+  
+  // Actualizar nombre de usuario y avatar en UI
+  const email = sessionStorage.getItem('hd_user_email') || '';
+  const nombreMostrar = nombre || email.split('@')[0] || 'Administrador';
+
+  const userNameEl = document.getElementById('sbUserName');
+  const userEmailEl = document.getElementById('sbUserEmail');
+  if (userNameEl) {
+    userNameEl.textContent = nombreMostrar;
+    userNameEl.title = nombreMostrar;
+  }
+  if (userEmailEl) {
+    userEmailEl.textContent = email || '';
+    userEmailEl.title = email || '';
+  }
+
+  const avatarEl = document.getElementById('sbAvatar');
+  if (avatarEl) {
+    const textForAvatar = nombreMostrar;
+    avatarEl.textContent = textForAvatar.charAt(0).toUpperCase();
+  }
+
+  initSidebar();
+  showView('dashboard');
+
+  // Toast de bienvenida (una vez por sesión)
+  if (!sessionStorage.getItem('hd_welcomed')) {
+    sessionStorage.setItem('hd_welcomed', '1');
+    setTimeout(() => showWelcomeToast(nombreMostrar), 700);
+  }
+
+  // Inicializar badge de notificaciones
+  if (typeof initNotificaciones === 'function') {
+    setTimeout(() => initNotificaciones(), 1500);
+  }
+}
+
+// ─── Toast de Bienvenida ─────────────────────────────────────────────────────
+function showWelcomeToast(nombre) {
+  const container = document.getElementById('toastContainer');
+  if (!container) return;
+  const div = document.createElement('div');
+  div.className = 'toast toast-welcome';
+  div.innerHTML = `
+    <div class="toast-ico">👋</div>
+    <div class="toast-msg">
+      <strong>¡Bienvenido de nuevo, ${escHtml(nombre)}!</strong>
+      <span>Aquí tienes el resumen de créditos de hoy.</span>
+    </div>
+    <button class="toast-close" onclick="this.closest('.toast').remove()">&times;</button>
+  `;
+  container.appendChild(div);
+  setTimeout(() => {
+    div.classList.add('dismissing');
+    setTimeout(() => div.remove(), 220);
+  }, 5500);
+}
+
+// ─── Animación de fondo — cuadrícula suave con ondas fluidas ─────────────────
+function initBgCanvas() {
+  const canvas = document.getElementById('bgCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+
+  let W = canvas.width  = window.innerWidth;
+  let H = canvas.height = window.innerHeight;
+  let t = 0;
+  const mouse = { x: null, y: null };
+
+  window.addEventListener('mousemove',  e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+  window.addEventListener('mouseleave', () => { mouse.x = null; mouse.y = null; });
+  window.addEventListener('touchmove',  e => { if (e.touches.length) { mouse.x = e.touches[0].clientX; mouse.y = e.touches[0].clientY; } }, { passive: true });
+  window.addEventListener('touchend',   () => { mouse.x = null; mouse.y = null; });
+  window.addEventListener('resize',     () => { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; });
+
+  (function render() {
+    const d = document.body.classList.contains('dark-mode');
+    ctx.fillStyle = d ? '#0b1719' : '#ffffff';
+    ctx.fillRect(0, 0, W, H);
+    t += 0.004;
+
+    // Cuadrícula base — espaciado 90px (pocas líneas, suave)
+    const G = 90;
+    ctx.lineWidth = 0.35;
+    ctx.strokeStyle = d ? 'rgba(255,255,255,0.035)' : 'rgba(70,70,70,0.025)';
+    for (let y = 0; y <= H + G; y += G) {
+      const oy = 4 * Math.sin(t + y * 0.012);
+      ctx.beginPath(); ctx.moveTo(0, y + oy); ctx.lineTo(W, y + oy); ctx.stroke();
+    }
+    for (let x = 0; x <= W + G; x += G) {
+      const ox = 4 * Math.sin(t + x * 0.012);
+      ctx.beginPath(); ctx.moveTo(x + ox, 0); ctx.lineTo(x + ox, H); ctx.stroke();
+    }
+
+    // Ondas horizontales fluidas — 12 líneas (era 30)
+    const N = 12;
+    for (let i = 0; i < N; i++) {
+      const yPos  = (i / N) * H;
+      const amp   = 26 + 12 * Math.sin(t * 0.2  + i * 0.11);
+      const freq  = 0.0065 + 0.003 * Math.sin(t * 0.1 + i * 0.05);
+      const speed = t * (0.45 + 0.25 * Math.sin(i * 0.12));
+      const thick = 0.55 + 0.4 * Math.sin(t + i * 0.22);
+      const alpha = d
+        ? (0.07  + 0.045 * Math.abs(Math.sin(t * 0.3 + i * 0.15)))
+        : (0.052 + 0.035 * Math.abs(Math.sin(t * 0.3 + i * 0.15)));
+
+      ctx.beginPath();
+      ctx.lineWidth = thick;
+      ctx.strokeStyle = d ? `rgba(190, 253, 255,${alpha})` : `rgba(50,50,50,${alpha})`;
+
+      for (let x = 0; x < W; x += 4) {
+        let y = yPos + amp * Math.sin(x * freq + speed);
+        if (mouse.x !== null) {
+          const dx = x - mouse.x, dy = y - mouse.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 130) { const f = (130 - dist) / 130; y += (dy > 0 ? 1 : -1) * f * 16; }
+        }
+        x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    requestAnimationFrame(render);
+  })();
+}
+
+function cerrarSesion() {
+  mostrarModalConfirmacion({
+    titulo: 'Cerrar sesión',
+    mensaje: '¿Estás seguro de que deseas cerrar sesión en el Panel de Control?',
+    btnAceptarText: 'Cerrar sesión',
+    colorTheme: 'danger',
+    onAceptar: () => {
+      const token = sessionStorage.getItem('hd_panel_token');
+      if (token) {
+        google.script.run.withSuccessHandler(() => {}).apiLogout(token);
+      }
+      sessionStorage.removeItem('hd_panel_token');
+      sessionStorage.removeItem('hd_user_email');
+      
+      // Resetear estados de carga e interfaces
+      if (typeof STATE !== 'undefined') {
+        STATE.loadingCount = 0;
+        STATE.resultadoIA = null;
+        STATE.expedienteActual = null;
+        STATE.solicitudDetalleActual = null;
+      }
+      const loader = document.getElementById('topProgressBar');
+      if (loader) loader.classList.add('hidden');
+
+      // Cancelar modal de procesos de carga si está activo
+      if (typeof LoadingProcess !== 'undefined' && LoadingProcess.hide) {
+        LoadingProcess.hide();
+      }
+
+      // Cerrar cualquier modal abierto
+      if (typeof cerrarCrearUsuarioModal === 'function') cerrarCrearUsuarioModal();
+      if (typeof cerrarModalExp === 'function') cerrarModalExp();
+      if (typeof cerrarEditarSolicitud === 'function') cerrarEditarSolicitud();
+      if (typeof cerrarModalCentro === 'function') cerrarModalCentro();
+      if (typeof cerrarModalCrud === 'function') cerrarModalCrud();
+      if (typeof cerrarModalCreditoDetalle === 'function') cerrarModalCreditoDetalle();
+      if (typeof cerrarConfigFormModal === 'function') cerrarConfigFormModal();
+      
+      // Volver a login de manera limpia sin reload (evita pantalla en blanco en GAS)
+      document.getElementById('appLayout').style.display = 'none';
+      document.getElementById('loginScreen').style.display = 'flex';
+      document.getElementById('loginScreen').classList.remove('fade-out');
+      
+      // Mostrar canvas de fondo en pantalla de login
+      const bgCanvas = document.getElementById('bgCanvas');
+      if (bgCanvas) bgCanvas.style.display = 'block';
+      
+      document.getElementById('loginEmail').value = '';
+      document.getElementById('loginPassword').value = '';
+      document.getElementById('loginError').style.display = 'none';
+      
+      cerrarModalConfirm();
+    }
+  });
+}
+
+let recoveryStep = 1;     // 1: Enviar correo, 2: Restablecer clave
+
+function toggleAuthMode(mode) {
+  // Resetear estados de recuperación
+  recoveryStep = 1;
+  
+  document.getElementById('recoverCodeField').style.display = 'none';
+  document.getElementById('recoverEmail').disabled = false;
+  
+  document.getElementById('recoverEmail').value = '';
+  document.getElementById('recoverCodigo').value = '';
+  document.getElementById('recoverPassword').value = '';
+  
+  document.getElementById('recoverBtn').textContent = 'Enviar código de recuperación';
+  document.getElementById('recoverBtn').disabled = false;
+  
+  document.getElementById('loginError').style.display = 'none';
+  document.getElementById('recoverError').style.display = 'none';
+
+  document.getElementById('loginFormCard').style.display = 'none';
+  document.getElementById('recoverFormCard').style.display = 'none';
+
+  if (mode === 'recover') {
+    document.getElementById('recoverFormCard').style.display = 'block';
+  } else {
+    document.getElementById('loginFormCard').style.display = 'block';
+  }
+}
+function togglePasswordVisibility(inputId) {
+  const input = document.getElementById(inputId);
+  const btn = input.nextElementSibling;
+  const openEye = btn.querySelector('.eye-open');
+  const closedEye = btn.querySelector('.eye-closed');
+  if (input.type === 'password') {
+    input.type = 'text';
+    openEye.style.display = 'none';
+    closedEye.style.display = 'block';
+  } else {
+    input.type = 'password';
+    openEye.style.display = 'block';
+    closedEye.style.display = 'none';
+  }
+}
+
+function procesarRecuperacionStep() {
+  const email   = document.getElementById('recoverEmail').value.trim();
+  const btn     = document.getElementById('recoverBtn');
+  const errorEl = document.getElementById('recoverError');
+
+  errorEl.style.display = 'none';
+  if (!email) {
+    errorEl.textContent = 'El correo electrónico es requerido.';
+    errorEl.style.display = 'block';
+    return;
+  }
+
+  if (recoveryStep === 1) {
+    btn.disabled = true;
+    btn.textContent = 'Enviando código...';
+
+    google.script.run
+      .withSuccessHandler(res => {
+        btn.disabled = false;
+        if (res.ok) {
+          recoveryStep = 2;
+          document.getElementById('recoverCodeField').style.display = 'block';
+          btn.textContent = 'Restablecer contraseña';
+          document.getElementById('recoverEmail').disabled = true;
+          showToast('Hemos enviado un código de recuperación a tu correo electrónico.', 'info');
+        } else {
+          btn.textContent = 'Enviar código de recuperación';
+          errorEl.textContent = res.error || 'No se pudo enviar el código.';
+          errorEl.style.display = 'block';
+        }
+      })
+      .withFailureHandler(err => {
+        btn.disabled = false;
+        btn.textContent = 'Enviar código de recuperación';
+        errorEl.textContent = 'Error de conexión. Intenta de nuevo.';
+        errorEl.style.display = 'block';
+      })
+      .apiEnviarCodigoRecuperacion(email);
+  } else if (recoveryStep === 2) {
+    const codigo = document.getElementById('recoverCodigo').value.trim();
+    const nuevoPassword = document.getElementById('recoverPassword').value.trim();
+
+    if (!codigo || codigo.length !== 6) {
+      errorEl.textContent = 'Ingresa el código de 6 dígitos.';
+      errorEl.style.display = 'block';
+      return;
+    }
+    if (!nuevoPassword || nuevoPassword.length < 6) {
+      errorEl.textContent = 'La nueva contraseña debe tener al menos 6 caracteres.';
+      errorEl.style.display = 'block';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Restableciendo...';
+
+    google.script.run
+      .withSuccessHandler(res => {
+        btn.disabled = false;
+        if (res.ok) {
+          showToast('Contraseña restablecida correctamente. Ya puedes iniciar sesión.', 'success');
+          toggleAuthMode('login');
+        } else {
+          btn.textContent = 'Restablecer contraseña';
+          errorEl.textContent = res.error || 'No se pudo restablecer la contraseña.';
+          errorEl.style.display = 'block';
+        }
+      })
+      .withFailureHandler(err => {
+        btn.disabled = false;
+        btn.textContent = 'Restablecer contraseña';
+        errorEl.textContent = 'Error de conexión. Intenta de nuevo.';
+        errorEl.style.display = 'block';
+      })
+      .apiRestablecerPassword(email, codigo, nuevoPassword);
+  }
+}
+
+// Bloquear token en la inicialización si no es ADMIN
+const token = sessionStorage.getItem('hd_panel_token');
+if (token) {
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res.ok && res.rol === 'ADMIN') {
+        sessionStorage.setItem('hd_user_email', res.email);
+        mostrarApp(res.nombre, res.rol);
+      } else {
+        sessionStorage.removeItem('hd_panel_token');
+        sessionStorage.removeItem('hd_user_email');
+        document.getElementById('loginScreen').style.display = 'flex';
+        document.getElementById('appLayout').style.display = 'none';
+        
+        const bgCanvas = document.getElementById('bgCanvas');
+        if (bgCanvas) bgCanvas.style.display = 'block';
+      }
+    })
+    .withFailureHandler(() => {
+      sessionStorage.removeItem('hd_panel_token');
+      sessionStorage.removeItem('hd_user_email');
+      document.getElementById('loginScreen').style.display = 'flex';
+      document.getElementById('appLayout').style.display = 'none';
+      
+      const bgCanvas = document.getElementById('bgCanvas');
+      if (bgCanvas) bgCanvas.style.display = 'block';
+    })
+    .apiVerificarSesion(token);
+}
+
+function toggleFiltrosAvanzadosCrud() {
+  const panel = document.getElementById('panelFiltrosAvanzadosCrud');
+  const btn = document.getElementById('btnToggleFiltrosCrud');
+  if (!panel || !btn) return;
+  if (panel.classList.contains('collapsed')) {
+    panel.classList.remove('collapsed');
+    btn.classList.add('active');
+  } else {
+    panel.classList.add('collapsed');
+    btn.classList.remove('active');
+  }
+}
+
+/** Limpia el input del buscador global y refresca el filtrado. */
+function limpiarBusquedaGlobal() {
+  const gs = document.getElementById('globalSearch');
+  const searchClear = document.getElementById('globalSearchClear');
+  const searchKbd = document.querySelector('.ph-search-kbd');
+  if (gs) {
+    gs.value = '';
+    gs.focus();
+  }
+  if (searchClear) searchClear.style.display = 'none';
+  if (searchKbd) searchKbd.style.display = 'inline-block';
+  
+  // Limpiar también el buscador interno de la vista de solicitudes y refrescar
+  const searchInput = document.getElementById('searchInput');
+  if (searchInput) searchInput.value = '';
+  if (typeof filtrarSolicitudes === 'function') filtrarSolicitudes();
+}
+
+// Iniciar el fondo de ondas vectoriales dinámicas en cuanto el DOM esté listo (para login y app)
+window.addEventListener('DOMContentLoaded', () => {
+  initBgCanvas();
+});
+</script>

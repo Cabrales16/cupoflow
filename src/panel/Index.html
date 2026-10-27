@@ -1,0 +1,2287 @@
+<!-- Build: 1782839905 -->
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Panel de Control y Administración de Solicitudes de Crédito Corporativo — CupoFlow">
+  <link rel="icon" type="image/x-icon" href="https://www.example.com/favicon.ico">
+  <title>Panel de Control y Administración - Solicitud de Créditos</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2...family=Outfit:wght@300;400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Dependencias separadas para que window.html2canvas y window.jspdf estén disponibles -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.min.js"></script>
+  <?!= include('Styles'); ?>
+</head>
+<body>
+
+  <!-- Barra de Carga Global -->
+  <div id="topProgressBar" class="top-progress-bar hidden">
+    <div class="progress-bar-fill"></div>
+  </div>
+
+  <!-- Canvas de fondo animado (sutil, decorativo) -->
+  <canvas id="bgCanvas"></canvas>
+
+  <!-- ── Login Screen ──────────────────────────────────────────────── -->
+  <div id="loginScreen">
+    <!-- Alternar modo oscuro/claro en Login -->
+    <button class="btn-theme-toggle" id="loginThemeToggle" onclick="toggleTheme()" title="Alternar modo oscuro/claro" aria-label="Cambiar tema" style="position: absolute; top: 24px; right: 24px; z-index: 10000;">
+      <span class="theme-icon-sun">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <circle cx="12" cy="12" r="5"/>
+          <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+          <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+        </svg>
+      </span>
+      <span class="theme-icon-moon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+        </svg>
+      </span>
+    </button>
+
+
+    <div class="login-card" id="loginFormCard">
+      <div class="login-logo">
+        <img src="https://lh3.googleusercontent.com/d/TU_LOGO_DRIVE_ID" alt="CupoFlow" class="login-logo-img">
+        <div class="login-logo-sub">Panel de Control de Créditos</div>
+      </div>
+      <div class="login-field">
+        <label>Correo electrónico</label>
+        <input type="email" id="loginEmail" placeholder="usuario@example.com" autocomplete="username">
+      </div>
+      <div class="login-field">
+        <label>Contraseña</label>
+        <div style="position: relative;">
+          <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password" style="padding-right: 40px;">
+          <button type="button" class="pwd-toggle" onclick="togglePasswordVisibility('loginPassword')" aria-label="Mostrar contraseña">
+            <svg class="eye-open" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+            </svg>
+            <svg class="eye-closed" style="display: none;" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3l18 18" />
+            </svg>
+          </button>
+        </div>
+      </div>
+      <button class="login-btn" id="loginBtn" onclick="iniciarSesion()">Iniciar sesión</button>
+      <div style="display: flex; justify-content: center; align-items: center; margin-top: 16px; font-size: 13px; position: relative; z-index: 5;">
+        <a href="#" onclick="toggleAuthMode('recover'); return false;" style="color:var(--muted); text-decoration:none; font-weight:500;">¿Olvidaste tu contraseña?</a>
+      </div>
+      <div class="login-error" id="loginError"></div>
+    </div>
+
+
+
+    <!-- Recuperación Card -->
+    <div class="login-card" id="recoverFormCard" style="display:none;">
+      <div class="login-logo">
+        <img src="https://lh3.googleusercontent.com/d/TU_LOGO_DRIVE_ID" alt="CupoFlow" class="login-logo-img">
+        <div class="login-logo-sub">Recuperar contraseña</div>
+      </div>
+      <div class="login-field">
+        <label>Correo electrónico registrado</label>
+        <input type="email" id="recoverEmail" placeholder="usuario@example.com">
+      </div>
+      
+      <!-- Código y Nueva Contraseña (Oculto inicialmente) -->
+      <div id="recoverCodeField" style="display:none;">
+        <div class="login-field">
+          <label>Código de recuperación (6 dígitos)</label>
+          <input type="text" id="recoverCodigo" placeholder="123456" maxlength="6" style="text-align: center; letter-spacing: 4px; font-weight: bold; font-size: 16px;">
+        </div>
+        <div class="login-field">
+          <label>Nueva contraseña</label>
+          <div style="position: relative;">
+            <input type="password" id="recoverPassword" placeholder="••••••••" style="padding-right: 40px;">
+            <button type="button" class="pwd-toggle" onclick="togglePasswordVisibility('recoverPassword')" aria-label="Mostrar contraseña">
+              <svg class="eye-open" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
+              <svg class="eye-closed" style="display: none;" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3l18 18" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Botón de acción dual -->
+      <button class="login-btn" id="recoverBtn" onclick="procesarRecuperacionStep()">Enviar código de recuperación</button>
+      
+      <div style="text-align:center; margin-top:16px; font-size:13px; position: relative; z-index: 5;">
+        <span style="color:var(--muted);">¿Te acordaste?</span> 
+        <a href="#" onclick="toggleAuthMode('login'); return false;" style="color:var(--navy2); font-weight:600; text-decoration:none;">Inicia sesión</a>
+      </div>
+      <div class="login-error" id="recoverError"></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════
+       LAYOUT: Sidebar + Main
+       ═══════════════════════════════════════════════════ -->
+  <div id="appLayout" style="display: none;">
+
+    <!-- ─── SIDEBAR ─── -->
+    <aside id="sidebar">
+      <div class="sb-brand">
+        <span class="sb-logo-collapsed">o</span>
+        <img id="logoImg" src="https://lh3.googleusercontent.com/d/TU_LOGO_DRIVE_ID" alt="CupoFlow" class="sb-logo">
+      </div>
+      <nav class="sb-nav" role="navigation">
+
+        <span class="sb-section-label">General</span>
+
+        <button class="sb-item active" data-view="dashboard" id="navDashboard" title="Dashboard">
+          <span class="sb-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/>
+              <rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>
+            </svg>
+          </span>
+          <span class="sb-label">Dashboard</span>
+        </button>
+
+        <button class="sb-item" data-view="notificaciones" id="navNotificaciones" title="Notificaciones">
+          <span class="sb-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+              <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+            </svg>
+          </span>
+          <span class="sb-label">Notificaciones</span>
+          <span class="sb-badge" id="badgeNotifSidebar" style="display:none;">0</span>
+        </button>
+
+        <span class="sb-section-label">Operaciones</span>
+
+        <button class="sb-item" data-view="solicitudes" id="navSolicitudes" title="Solicitudes">
+          <span class="sb-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/>
+              <line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
+            </svg>
+          </span>
+          <span class="sb-label">Solicitudes</span>
+          <span class="sb-badge" id="badgePendientes" style="display:none;">0</span>
+        </button>
+
+        <button class="sb-item" data-view="creditos" id="navCreditos" title="Créditos">
+          <span class="sb-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="4" width="20" height="16" rx="2"/>
+              <line x1="2" y1="10" x2="22" y2="10"/>
+            </svg>
+          </span>
+          <span class="sb-label">Créditos</span>
+        </button>
+
+        <span class="sb-section-label">Configuración</span>
+
+        <button class="sb-item" data-view="configuracion" id="navConfiguracion" title="Catálogos">
+          <span class="sb-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+          </span>
+          <span class="sb-label">Catálogos</span>
+        </button>
+
+        <button class="sb-item" data-view="usuarios" id="navUsuarios" title="Gestión de usuarios">
+          <span class="sb-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+          </span>
+          <span class="sb-label">Usuarios</span>
+        </button>
+
+        <span class="sb-section-label">Sistema</span>
+
+        <button class="sb-item" data-view="auditoria" id="navAuditoria" title="Auditoría">
+          <span class="sb-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0 1 12 2.944a11.955 11.955 0 0 1-8.618 3.04A12.02 12.02 0 0 0 3 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+            </svg>
+          </span>
+          <span class="sb-label">Auditoría</span>
+        </button>
+
+        <button class="sb-item" data-view="backups" id="navBackups" title="Copias de seguridad">
+          <span class="sb-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+          </span>
+          <span class="sb-label">Backups</span>
+        </button>
+      </nav>
+
+      <!-- Separador inferior -->
+      <div class="sb-bottom">
+        <div class="sb-divider"></div>
+        <div class="sb-item sb-user" title="Administrador" style="cursor: default;">
+          <div class="sb-avatar" id="sbAvatar" style="width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, var(--gold), var(--gold2)); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 13px; flex-shrink: 0; text-transform: uppercase;">A</div>
+          <div style="display: flex; flex-direction: column; gap: 1px; min-width: 0;">
+            <span class="sb-label" id="sbUserName" style="font-size: 12px; color: rgba(255,255,255,.8); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Administrador</span>
+            <span class="sb-label" id="sbUserEmail" style="font-size: 10.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">admin@example.com</span>
+          </div>
+        </div>
+        <button class="sb-item sb-logout" title="Cerrar sesión" onclick="cerrarSesion()" style="color: var(--danger); margin-top: 2px;">
+          <span class="sb-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+              <polyline points="16 17 21 12 16 7"></polyline>
+              <line x1="21" y1="12" x2="9" y2="12"></line>
+            </svg>
+          </span>
+          <span class="sb-label">Cerrar sesión</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- ── MAIN CONTENT ──────────────────────────────────── -->
+    <main id="mainContent">
+
+      <!-- Header superior -->
+      <header id="panelHeader">
+        <!-- Izquierda: Título + Breadcrumb -->
+        <div class="ph-left">
+          <h1 id="pageTitle">Dashboard</h1>
+          <nav class="ph-breadcrumb" id="breadcrumbNav" aria-label="breadcrumb">
+            <span class="bc-item" onclick="showView('dashboard')">Panel</span>
+            <span class="bc-sep">›</span>
+            <span class="bc-item active" id="bcCurrent">Dashboard</span>
+          </nav>
+        </div>
+
+        <!-- Centro: Buscador global -->
+        <div class="ph-search-wrap">
+          <svg class="ph-search-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input type="text" id="globalSearch" placeholder="Buscar solicitudes, empresas, códigos…" autocomplete="off">
+          <button type="button" class="ph-search-clear" id="globalSearchClear" onclick="limpiarBusquedaGlobal()" title="Limpiar búsqueda" style="display: none;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+          <span class="ph-search-kbd">Ctrl K</span>
+        </div>
+
+        <!-- Derecha: Acciones -->
+        <div class="ph-right">
+          <!-- Botón nuevo crédito -->
+          <button class="btn-new-credit" id="btnNuevoCredito" onclick="abrirModalCrud()" title="Registrar nuevo crédito">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Nuevo crédito
+          </button>
+
+          <!-- Botón Manual de Crédito y Cartera -->
+          <div style="position:relative; display:inline-flex; align-items:center;">
+            <a href="#manual-no-disponible"
+               target="_blank"
+               rel="noopener noreferrer"
+               id="btnManualCredito"
+               class="btn-header-icon"
+               aria-label="Ver manual de crédito y cartera"
+               style="text-decoration:none; font-family:'Georgia',serif; font-style:italic; font-size:16px; font-weight:700;"
+               onmouseenter="
+                 document.getElementById('tooltipManualCredito').style.opacity='1';
+                 document.getElementById('tooltipManualCredito').style.visibility='visible';
+                 document.getElementById('tooltipManualCredito').style.transform='translateX(-50%) translateY(0)';
+               "
+               onmouseleave="
+                 document.getElementById('tooltipManualCredito').style.opacity='0';
+                 document.getElementById('tooltipManualCredito').style.visibility='hidden';
+                 document.getElementById('tooltipManualCredito').style.transform='translateX(-50%) translateY(4px)';
+               ">
+              i
+            </a>
+            <div id="tooltipManualCredito" style="
+              position:absolute;
+              top:calc(100% + 10px);
+              left:50%;
+              transform:translateX(-50%) translateY(4px);
+              background:var(--navy, #193a41);
+              color:#fff;
+              font-size:11.5px;
+              font-weight:500;
+              white-space:nowrap;
+              padding:6px 11px;
+              border-radius:6px;
+              pointer-events:none;
+              opacity:0;
+              visibility:hidden;
+              transition:opacity 0.18s ease, transform 0.18s ease;
+              z-index:9999;
+              box-shadow:0 4px 12px rgba(0,0,0,0.18);
+              font-family:inherit;
+              letter-spacing:0.01em;
+            ">
+              Ver manual de crédito y cartera
+              <span style="
+                position:absolute;
+                top:-5px; left:50%;
+                transform:translateX(-50%);
+                width:0; height:0;
+                border-left:5px solid transparent;
+                border-right:5px solid transparent;
+                border-bottom:5px solid var(--navy, #193a41);
+              "></span>
+            </div>
+          </div>
+
+          <!-- Recargar -->
+          <button class="btn-header-icon" id="btnRecargar" onclick="recargarVista()" title="Actualizar datos">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+            </svg>
+          </button>
+
+          <!-- Toggle Dark/Light Mode -->
+          <button class="btn-header-icon btn-theme-toggle" id="btnThemeToggle" onclick="toggleTheme()" title="Alternar modo oscuro/claro" aria-label="Cambiar tema">
+            <span class="theme-icon-sun">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <circle cx="12" cy="12" r="5"/>
+                <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+              </svg>
+            </span>
+            <span class="theme-icon-moon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+              </svg>
+            </span>
+          </button>
+
+          <!-- Notificaciones -->
+          <button class="btn-header-icon" id="btnNotif" onclick="toggleNotifPanel()" title="Notificaciones">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+              <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+            </svg>
+            <span class="notif-badge hidden" id="notifBadge">0</span>
+          </button>
+
+          <!-- Panel de Notificaciones (dropdown) -->
+          <div id="notifDropdown" class="hidden">
+            <div class="notif-header">
+              <span class="notif-title">Notificaciones</span>
+              <button class="notif-mark-all" onclick="marcarTodasLeidas()">Marcar todas como leídas</button>
+            </div>
+            <ul class="notif-list" id="notifList">
+              <li class="notif-empty">Cargando... notificaciones…</li>
+            </ul>
+            <div class="notif-footer">
+              <button class="notif-footer-btn" onclick="showView('notificaciones'); toggleNotifPanel();">Ver todas las notificaciones &rarr;</button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <!-- ══ VISTA: DASHBOARD ══════════════════════════════ -->
+      <section id="viewDashboard" class="view-section">
+
+
+        <!-- Sub-header de Dashboard con Filtro de Período -->
+        <div class="db-header-bar" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:12px;">
+          <div>
+            <span class="db-header-title" style="font-size: 14px; font-weight: 600; color: var(--text2);">Resumen de créditos</span>
+          </div>
+          <div class="db-period-selector" style="display:flex; align-items:center; gap:8px; position:relative;">
+            <span style="font-size:12px; color:var(--muted); font-weight:500;">Período:</span>
+            <select id="dbPeriodo" class="select-periodo" onchange="cambiarPeriodoDashboard(this.value)">
+              <option value="ALL">Todo</option>
+              <option value="HOY">Hoy</option>
+              <option value="ESTA_SEMANA">Esta semana</option>
+              <option value="ESTE_MES" selected>Este mes</option>
+              <option value="ESTE_ANIO">Este año</option>
+              <option value="CUSTOM">Personalizado...</option>
+            </select>
+            <div id="dbCustomDates" style="display:none; align-items:center; gap:6px;">
+              <input type="date" id="dbFechaInicio" class="input-date-custom" onchange="aplicarFechasPersonalizadasDashboard()">
+              <span style="font-size:12px; color:var(--muted);">&mdash;</span>
+              <input type="date" id="dbFechaFin" class="input-date-custom" onchange="aplicarFechasPersonalizadasDashboard()">
+            </div>
+            
+            <!-- Botón Exportar Dropdown -->
+            <div class="export-dropdown-wrapper" style="position:relative; margin-left:4px;">
+              <button class="btn-export-trigger" onclick="toggleExportDropdown(event)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right:5px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                Exportar
+              </button>
+              <div id="dbExportDropdown" class="db-export-dropdown">
+                <a href="#" onclick="exportarDashboardExcel(event)">
+                  <img src="https://upload.wikimedia.org/wikipedia/commons/6/60/Microsoft_Office_Excel_%282025%E2%80%93present%29.svg" class="export-icon" alt="Excel">
+                  Exportar a Excel (.xlsx)
+                </a>
+                <a href="#" onclick="exportarDashboardCSV(event)">
+                  <img src="https://upload.wikimedia.org/wikipedia/commons/6/60/Microsoft_Office_Excel_%282025%E2%80%93present%29.svg" class="export-icon" alt="CSV">
+                  Exportar a CSV (.csv)
+                </a>
+                <div class="dropdown-divider"></div>
+                <a href="#" onclick="generarPresentacionSlides('slides', event)">
+                  <img src="https://upload.wikimedia.org/wikipedia/commons/d/df/Microsoft_Office_PowerPoint_%282025%E2%80%93present%29.svg" class="export-icon" alt="PowerPoint">
+                  PowerPoint / Google Slides
+                </a>
+                <a href="#" onclick="generarPresentacionSlides('pdf', event)">
+                  <img src="https://upload.wikimedia.org/wikipedia/commons/8/87/PDF_file_icon.svg" class="export-icon" alt="PDF">
+                  Documento PDF
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- KPI Cards (skeleton mientras carga) -->
+        <div class="kpi-grid" id="kpiGrid">
+          <div class="kpi-card skeleton-card">
+            <div class="sk sk-title" style="width:40%;margin-bottom:12px;"></div>
+            <div class="sk sk-kpi-num"></div>
+            <div class="sk sk-text" style="width:60%;margin-top:10px;"></div>
+          </div>
+          <div class="kpi-card skeleton-card">
+            <div class="sk sk-title" style="width:50%;margin-bottom:12px;"></div>
+            <div class="sk sk-kpi-num"></div>
+            <div class="sk sk-text" style="width:55%;margin-top:10px;"></div>
+          </div>
+          <div class="kpi-card skeleton-card">
+            <div class="sk sk-title" style="width:45%;margin-bottom:12px;"></div>
+            <div class="sk sk-kpi-num"></div>
+            <div class="sk sk-text" style="width:65%;margin-top:10px;"></div>
+          </div>
+          <div class="kpi-card skeleton-card">
+            <div class="sk sk-title" style="width:55%;margin-bottom:12px;"></div>
+            <div class="sk sk-kpi-num"></div>
+            <div class="sk sk-text" style="width:50%;margin-top:10px;"></div>
+          </div>
+        </div>
+
+        <!-- Sección de Gráficas -->
+        <div style="display:grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 320px; gap:16px; margin-top:24px;">
+          <!-- Gráfica de Tendencia (Izquierda) -->
+          <div class="panel-card" style="padding: 16px; display: flex; flex-direction: column;">
+            <div class="panel-card-header" style="display:flex; justify-content:space-between; align-items:center; padding: 0 0 12px 0; margin-bottom: 12px; border-bottom: 1px solid var(--border);">
+              <h2 class="panel-card-title">Evolución de las solicitudes</h2>
+              <div style="display:flex; gap:6px; align-items:center;">
+                <button class="btn-chart-nav" onclick="cambiarTipoGraficaTendencia(-1)" title="Cambiar tipo de gráfico">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                </button>
+                <button class="btn-chart-nav" onclick="cambiarTipoGraficaTendencia(1)" title="Cambiar tipo de gráfico">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                </button>
+              </div>
+            </div>
+            <div style="position: relative; flex: 1; min-height: 280px; display: flex; align-items: center; justify-content: center;">
+              <div id="chartTendenciaSkeleton" class="chart-skeleton">
+                <div class="sk-bars-container">
+                  <div class="sk-bar-col sk" style="height: 120px; width: 8px; border-radius: 4px;"></div>
+                  <div class="sk-bar-col sk" style="height: 160px; width: 8px; border-radius: 4px;"></div>
+                  <div class="sk-bar-col sk" style="height: 140px; width: 8px; border-radius: 4px;"></div>
+                  <div class="sk-bar-col sk" style="height: 180px; width: 8px; border-radius: 4px;"></div>
+                  <div class="sk-bar-col sk" style="height: 130px; width: 8px; border-radius: 4px;"></div>
+                  <div class="sk-bar-col sk" style="height: 170px; width: 8px; border-radius: 4px;"></div>
+                  <div class="sk-bar-col sk" style="height: 150px; width: 8px; border-radius: 4px;"></div>
+                </div>
+              </div>
+              <canvas id="chartTendencia" style="display:none;"></canvas>
+            </div>
+          </div>
+          <!-- Gráfica de Dona (Derecha) -->
+          <div class="panel-card" style="padding: 16px; display: flex; flex-direction: column;">
+            <div class="panel-card-header" style="display:flex; justify-content:space-between; align-items:center; padding: 0 0 12px 0; margin-bottom: 12px; border-bottom: 1px solid var(--border);">
+              <h2 class="panel-card-title">Distribución por estado</h2>
+              <div style="display:flex; gap:6px; align-items:center;">
+                <button class="btn-chart-nav" onclick="cambiarTipoGraficaEstados(-1)" title="Cambiar tipo de gráfico">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                </button>
+                <button class="btn-chart-nav" onclick="cambiarTipoGraficaEstados(1)" title="Cambiar tipo de gráfico">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                </button>
+              </div>
+            </div>
+            <div style="position: relative; flex: 1; min-height: 280px; display: flex; align-items: center; justify-content: center;">
+              <div id="chartEstadosSkeleton" class="chart-skeleton">
+                <div class="sk-circle-donut"></div>
+              </div>
+              <canvas id="chartEstados" style="display:none;"></canvas>
+            </div>
+          </div>
+          <!-- Widget Actividad Reciente -->
+          <div class="panel-card" style="overflow: hidden;">
+            <div class="panel-card-header">
+              <h2 class="panel-card-title">Actividad reciente</h2>
+            </div>
+            <div id="actividadListSkeleton" class="activity-skeleton">
+              <div class="sk-activity-row">
+                <div class="sk-act-avatar sk"></div>
+                <div class="sk-act-body">
+                  <div class="sk-act-line sk" style="width:75%;"></div>
+                  <div class="sk-act-line sk" style="width:40%; margin-top:6px;"></div>
+                </div>
+              </div>
+              <div class="sk-activity-row">
+                <div class="sk-act-avatar sk"></div>
+                <div class="sk-act-body">
+                  <div class="sk-act-line sk" style="width:60%;"></div>
+                  <div class="sk-act-line sk" style="width:30%; margin-top:6px;"></div>
+                </div>
+              </div>
+              <div class="sk-activity-row">
+                <div class="sk-act-avatar sk"></div>
+                <div class="sk-act-body">
+                  <div class="sk-act-line sk" style="width:80%;"></div>
+                  <div class="sk-act-line sk" style="width:45%; margin-top:6px;"></div>
+                </div>
+              </div>
+              <div class="sk-activity-row">
+                <div class="sk-act-avatar sk"></div>
+                <div class="sk-act-body">
+                  <div class="sk-act-line sk" style="width:50%;"></div>
+                  <div class="sk-act-line sk" style="width:25%; margin-top:6px;"></div>
+                </div>
+              </div>
+              <div class="sk-activity-row">
+                <div class="sk-act-avatar sk"></div>
+                <div class="sk-act-body">
+                  <div class="sk-act-line sk" style="width:70%;"></div>
+                  <div class="sk-act-line sk" style="width:35%; margin-top:6px;"></div>
+                </div>
+              </div>
+            </div>
+            <ul class="activity-list" id="actividadList" style="display:none;">
+              <li style="padding: 24px; text-align: center; color: var(--muted); font-size: 13px;">Cargando...</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Tabla resumen reciente -->
+        <div class="panel-card" style="margin-top:24px;">
+          <div class="panel-card-header">
+            <h2 class="panel-card-title">Solicitudes recientes</h2>
+            <button class="btn-ver-todas" onclick="showView('solicitudes')">Ver todas</button>
+          </div>
+          <div id="tablaDashboardWrap">
+            <!-- Skeleton tabla -->
+            <div class="table-skeleton" id="tablaDashboardSkeleton">
+              <div class="sk-table-row" style="height:44px;"></div>
+              <div class="sk-table-row" style="height:56px;margin-top:6px;"></div>
+              <div class="sk-table-row" style="height:56px;margin-top:6px;"></div>
+              <div class="sk-table-row" style="height:56px;margin-top:6px;"></div>
+              <div class="sk-table-row" style="height:56px;margin-top:6px;"></div>
+            </div>
+            <div id="tablaDashboard" style="display:none;">
+              <div class="table-responsive">
+                <table class="data-table" id="tablaDashboardEl">
+                  <thead>
+                    <tr>
+                      <th>Código</th>
+                      <th>Empresa / NIT</th>
+                      <th>Tipo</th>
+                      <th>Filial</th>
+                      <th>Monto</th>
+                      <th>Centro(es)</th>
+                      <th>Estado</th>
+                      <th>Comentarios</th>
+                      <th>Fecha envío</th>
+                      <th class="col-actions">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dashboardTableBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══ VISTA: SOLICITUDES ════════════════════════════ -->
+      <section id="viewSolicitudes" class="view-section hidden">
+
+        <!-- Barra de filtros -->
+        <div class="filter-bar panel-card" style="display:flex; flex-direction:column; gap:12px; padding:16px 18px; min-height:auto;">
+          <!-- Fila 1: Búsqueda rápida, Estados y Exportar -->
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; width:100%;">
+            <!-- Buscador -->
+            <div class="search-wrap" style="height: 36px; flex:1; max-width:340px;">
+              <svg class="search-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="top: 50%;">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              <input type="text" id="searchInput" class="search-input" placeholder="Buscar empresa, código, NIT…" oninput="filtrarSolicitudes()" style="height: 36px; padding: 0 14px 0 36px; box-sizing: border-box; width:100%;">
+            </div>
+            
+            <!-- Chips de Estado y Exportar -->
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:nowrap; margin-left:auto;">
+              <div class="filter-chips" id="filterChips" style="display:flex; align-items:center; gap:6px;">
+                <button class="chip active" data-estado="" onclick="setFiltroEstado(this, '')">Todas</button>
+                <button class="chip chip-warning" data-estado="PENDIENTE" onclick="setFiltroEstado(this, 'PENDIENTE')">
+                  Pendientes
+                  <span class="badge-chip" id="badgePendientesChip" style="display:none;">0</span>
+                </button>
+                <button class="chip chip-success" data-estado="APROBADA" onclick="setFiltroEstado(this, 'APROBADA')">Aprobadas</button>
+                <button class="chip chip-expired" data-estado="VENCIDO" onclick="setFiltroEstado(this, 'VENCIDO')">Vencidos</button>
+              </div>
+              
+              <!-- Botón de Limpiar Filtros (Bote de basura) -->
+              <button id="btnLimpiarFiltrosSolicitudes" class="btn-export-trigger" onclick="limpiarFiltrosSolicitudes()" style="display:none; align-items:center; justify-content:center; width:36px; height:36px; padding:0; background:transparent; color:var(--danger); border:1px solid var(--border2); border-radius:var(--radius-sm); margin-left:4px; transition: all 0.15s ease;" title="Limpiar todos los filtros" onmouseenter="this.style.background='rgba(220, 38, 38, 0.08)'; this.style.borderColor='var(--danger)';" onmouseleave="this.style.background='transparent'; this.style.borderColor='var(--border2)';">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="3 6 5 6 21 6"></polyline>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                  <line x1="10" y1="11" x2="10" y2="17"></line>
+                  <line x1="14" y1="11" x2="14" y2="17"></line>
+                </svg>
+              </button>
+
+              <div style="width:1px; height:20px; background:var(--border2); margin:0 4px; opacity:0.8;"></div>
+              
+              <!-- Botón Exportar solicitudes con dropdown -->
+              <div class="export-dropdown-wrapper" style="position:relative;">
+                <button class="btn-export-trigger" onclick="toggleExportSolicitudesDropdown(event)">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                  Exportar
+                </button>
+                <div id="solExportDropdown" class="db-export-dropdown" style="right: 0; width: 220px;">
+                  <a href="#" onclick="exportarSolicitudesExcel(event)">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/6/60/Microsoft_Office_Excel_%282025%E2%80%93present%29.svg" class="export-icon" alt="Excel">
+                    Exportar a Excel (.xlsx)
+                  </a>
+                  <a href="#" onclick="exportarSolicitudesCSV(event)">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/6/60/Microsoft_Office_Excel_%282025%E2%80%93present%29.svg" class="export-icon" alt="CSV">
+                    Exportar a CSV (.csv)
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Separador sutil -->
+          <div style="height:1px; background:var(--border2); opacity:0.6; margin:2px 0; width:100%;"></div>
+          
+          <!-- Fila 2: Segmentación y Filtros Avanzados -->
+          <div style="display:flex; align-items:center; gap:20px; flex-wrap:wrap; width:100%;">
+            <!-- Rango / Período -->
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:11px; color:var(--muted); font-weight:600; text-transform: uppercase; letter-spacing:0.04em;">Período:</span>
+              <select id="filtroSolicitudPeriodo" class="select-periodo" style="width:150px;" onchange="cambiarPeriodoSolicitudes(this.value)">
+                <option value="ALL">Cualquier fecha</option>
+                <option value="HOY">Hoy</option>
+                <option value="ESTA_SEMANA">Esta semana</option>
+                <option value="ESTE_MES">Este mes</option>
+                <option value="ESTE_ANO">Este año</option>
+                <option value="CUSTOM">Personalizado...</option>
+              </select>
+              
+              <!-- Rango de fechas personalizado para solicitudes -->
+              <div id="solCustomDates" style="display: none; align-items:center; gap:4px;">
+                <input type="date" id="solFechaInicio" class="input-date-custom" onchange="aplicarFechasPersonalizadasSolicitudes()">
+                <span style="font-size:12px; color:var(--muted);">&mdash;</span>
+                <input type="date" id="solFechaFin" class="input-date-custom" onchange="aplicarFechasPersonalizadasSolicitudes()">
+              </div>
+            </div>
+            
+            <!-- Tipo -->
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:11px; color:var(--muted); font-weight:600; text-transform: uppercase; letter-spacing:0.04em;">Tipo:</span>
+              <select id="filtroSolicitudTipo" class="select-periodo" style="width:150px;" onchange="cambiarTipoSolicitudes(this.value)">
+                <option value="">Todos los tipos</option>
+                <option value="NUEVA">Nueva</option>
+                <option value="AMPLIACION">Ampliación</option>
+                <option value="RENOVACION">Renovación</option>
+                <option value="HOMOLOGACION">Homologación</option>
+              </select>
+            </div>
+
+            <!-- Filial -->
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:11px; color:var(--muted); font-weight:600; text-transform: uppercase; letter-spacing:0.04em;">Filial:</span>
+              <select id="filtroSolicitudFilial" class="select-periodo" style="width:110px;" onchange="cambiarFilialSolicitudes(this.value)">
+                <option value="">Todos</option>
+                <option value="SI">Sí</option>
+                <option value="NO">No</option>
+              </select>
+            </div>
+
+            <!-- Centro -->
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:11px; color:var(--muted); font-weight:600; text-transform: uppercase; letter-spacing:0.04em;">Centro:</span>
+              <select id="filtroSolicitudCentro" class="select-periodo" style="width:170px;" onchange="cambiarCentroSolicitudes(this.value)">
+                <option value="">Todos los centros</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tabla principal de solicitudes -->
+        <div class="panel-card" style="margin-top:16px;">
+          <div class="panel-card-header">
+            <h2 class="panel-card-title">Solicitudes de crédito</h2>
+            <span class="result-count" id="resultCount">— registros</span>
+          </div>
+
+          <!-- Skeleton tabla solicitudes -->
+          <div id="tablaSolicitudesSkeleton" class="table-skeleton">
+            <div class="sk-table-row hdr" style="height:40px;"></div>
+            <div class="sk-table-row" style="height:58px;margin-top:4px;"></div>
+            <div class="sk-table-row" style="height:58px;margin-top:4px;"></div>
+            <div class="sk-table-row" style="height:58px;margin-top:4px;"></div>
+            <div class="sk-table-row" style="height:58px;margin-top:4px;"></div>
+            <div class="sk-table-row" style="height:58px;margin-top:4px;"></div>
+            <div class="sk-table-row" style="height:58px;margin-top:4px;"></div>
+          </div>
+
+          <div id="tablaSolicitudesWrap" style="display:none;">
+            <div class="table-responsive">
+              <table class="data-table" id="tablaSolicitudesEl">
+                <thead>
+                  <tr>
+                    <th>Código</th>
+                    <th>Empresa / NIT</th>
+                    <th>Tipo</th>
+                    <th>Filial</th>
+                    <th>Monto</th>
+                    <th>Centro(es)</th>
+                    <th>Estado</th>
+                    <th>Comentarios</th>
+                    <th>Fecha envío</th>
+                    <th class="col-actions">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="solicitudesTableBody"></tbody>
+              </table>
+            </div>
+            <p class="empty-state hidden" id="emptyState">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M9.172 16.172a4 4 0 0 1 5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg>
+              No se encontraron solicitudes con los filtros actuales.
+            </p>
+            <div id="pagSolicitudes"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══ VISTA: CRÉDITOS ═══════════════════════════════ -->
+      <section id="viewCreditos" class="view-section hidden">
+        <div class="filter-bar panel-card" style="display:flex; flex-direction:column; gap:12px; padding:16px 18px; min-height:auto;">
+          <!-- Fila 1: Búsqueda rápida, Acciones y Exportar -->
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; width:100%;">
+            <!-- Buscador -->
+            <div class="search-wrap" style="height: 36px; flex:1; max-width:340px;">
+              <svg class="search-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="top: 50%;">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              <input type="text" id="crudSearch" class="search-input" placeholder="Buscar empresa, NIT, centro..." oninput="cargarCrud()" style="height: 36px; padding: 0 14px 0 36px; box-sizing: border-box; width:100%;">
+            </div>
+            
+            <!-- Acciones y Exportar -->
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:nowrap; margin-left:auto;">
+              <!-- Registrar nuevo crédito -->
+              <button class="btn-new-credit" onclick="abrirModalCrud(null)" title="Registrar nuevo crédito" style="height:36px; padding:0 14px; font-size:12.5px; display:inline-flex; align-items:center; gap:6px; border-radius:var(--radius-sm);">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="width:14px; height:14px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Nuevo crédito
+              </button>
+
+              <!-- Importar Plantilla -->
+              <button class="btn btn-outline btn-sm" onclick="abrirConfirmacionImportacion()" style="height:36px; padding:0 14px; font-size:12.5px; display:inline-flex; align-items:center; gap:6px; border-radius:var(--radius-sm);">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:14px; height:14px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                Importar plantilla
+              </button>
+
+              <!-- Botón de Limpiar Filtros Crud (Bote de basura) -->
+              <button id="btnLimpiarFiltrosCrud" class="btn-export-trigger" onclick="limpiarFiltrosCrud()" style="display:none; align-items:center; justify-content:center; width:36px; height:36px; padding:0; background:transparent; color:var(--danger); border:1px solid var(--border2); border-radius:var(--radius-sm); margin-left:4px; transition: all 0.15s ease;" title="Limpiar todos los filtros" onmouseenter="this.style.background='rgba(220, 38, 38, 0.08)'; this.style.borderColor='var(--danger)';" onmouseleave="this.style.background='transparent'; this.style.borderColor='var(--border2)';">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="3 6 5 6 21 6"></polyline>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                  <line x1="10" y1="11" x2="10" y2="17"></line>
+                  <line x1="14" y1="11" x2="14" y2="17"></line>
+                </svg>
+              </button>
+
+              <div style="width:1px; height:20px; background:var(--border2); margin:0 4px; opacity:0.8;"></div>
+              
+              <!-- Botón Exportar Créditos con dropdown -->
+              <div class="export-dropdown-wrapper" style="position:relative;">
+                <button class="btn-export-trigger" onclick="toggleExportCreditosDropdown(event)">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                  Exportar
+                </button>
+                <div id="crudExportDropdown" class="db-export-dropdown" style="right: 0; width: 220px;">
+                  <a href="#" onclick="exportarCreditosExcel(event)">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/6/60/Microsoft_Office_Excel_%282025%E2%80%93present%29.svg" class="export-icon" alt="Excel">
+                    Exportar a Excel (.xlsx)
+                  </a>
+                  <a href="#" onclick="exportarCSVCrud(event)">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/6/60/Microsoft_Office_Excel_%282025%E2%80%93present%29.svg" class="export-icon" alt="CSV">
+                    Exportar a CSV (.csv)
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Separador sutil -->
+          <div style="height:1px; background:var(--border2); opacity:0.6; margin:2px 0; width:100%;"></div>
+          
+          <!-- Fila 2: Segmentación y Filtros Avanzados -->
+          <div style="display:flex; align-items:center; gap:20px; flex-wrap:wrap; width:100%;">
+            <!-- Rango / Período -->
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:11px; color:var(--muted); font-weight:600; text-transform: uppercase; letter-spacing:0.04em;">Período:</span>
+              <select id="crudFilterPeriodo" class="select-periodo" style="width:150px;" onchange="cambiarPeriodoCrud(this.value)">
+                <option value="ALL">Cualquier fecha</option>
+                <option value="HOY">Hoy</option>
+                <option value="ESTA_SEMANA">Esta semana</option>
+                <option value="ESTE_MES">Este mes</option>
+                <option value="ESTE_ANO">Este año</option>
+                <option value="CUSTOM">Personalizado...</option>
+              </select>
+              
+              <!-- Rango de fechas personalizado para créditos -->
+              <div id="crudCustomDates" style="display: none; align-items:center; gap:4px;">
+                <input type="date" id="crudFilterFechaInicio" class="input-date-custom" onchange="aplicarFechasPersonalizadasCrud()">
+                <span style="font-size:12px; color:var(--muted);">&mdash;</span>
+                <input type="date" id="crudFilterFechaFin" class="input-date-custom" onchange="aplicarFechasPersonalizadasCrud()">
+              </div>
+            </div>
+            
+            <!-- Centro -->
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:11px; color:var(--muted); font-weight:600; text-transform: uppercase; letter-spacing:0.04em;">Centro:</span>
+              <select id="crudFilterCentro" class="select-periodo" style="width:170px;" onchange="cargarCrud()">
+                <option value="TODOS">Todos los centros</option>
+              </select>
+            </div>
+
+            <!-- Estado aprobación -->
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:11px; color:var(--muted); font-weight:600; text-transform: uppercase; letter-spacing:0.04em;">Aprobación:</span>
+              <select id="crudFilterEstado" class="select-periodo" style="width:165px;" onchange="cargarCrud()">
+                <option value="TODOS">Todos los estados</option>
+                <option value="Vigente">Vigente</option>
+                <option value="Por Vencer">Por Vencer</option>
+                <option value="Vencido">Vencido</option>
+                <option value="Bloqueado Corporativo">Bloqueado Corporativo</option>
+                <option value="Bloqueado Gerencia">Bloqueado Gerencia</option>
+              </select>
+            </div>
+
+            <!-- Estado vigencia -->
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:11px; color:var(--muted); font-weight:600; text-transform: uppercase; letter-spacing:0.04em;">Vigencia:</span>
+              <select id="crudFilterVig" class="select-periodo" style="width:150px;" onchange="cargarCrud()">
+                <option value="TODOS">Todas las vigencias</option>
+                <option value="Vigente">Vigente</option>
+                <option value="No Vigente">No Vigente</option>
+                <option value="Por Vencer">Por Vencer</option>
+              </select>
+            </div>
+
+            <!-- Perfil creado -->
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:11px; color:var(--muted); font-weight:600; text-transform: uppercase; letter-spacing:0.04em;">Perfil creado:</span>
+              <select id="crudFilterPerfil" class="select-periodo" style="width:110px;" onchange="cargarCrud()">
+                <option value="TODOS">Todos</option>
+                <option value="SI">Sí</option>
+                <option value="NO">No</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-card" style="margin-top:16px;">
+          <div class="panel-card-header">
+            <h2 class="panel-card-title">Base de créditos corporativos <span id="crudCountBadge" style="font-size:12.5px; font-weight:normal; color:var(--muted); margin-left:8px;">(— registros)</span></h2>
+          </div>
+
+          <!-- Skeleton tabla créditos -->
+          <div id="tablaCreditosSkeleton" class="table-skeleton">
+            <div class="sk-table-row hdr" style="height:40px;"></div>
+            <div class="sk-table-row" style="height:58px;margin-top:4px;"></div>
+            <div class="sk-table-row" style="height:58px;margin-top:4px;"></div>
+            <div class="sk-table-row" style="height:58px;margin-top:4px;"></div>
+            <div class="sk-table-row" style="height:58px;margin-top:4px;"></div>
+            <div class="sk-table-row" style="height:58px;margin-top:4px;"></div>
+            <div class="sk-table-row" style="height:58px;margin-top:4px;"></div>
+          </div>
+
+          <!-- Wrapper tabla créditos -->
+          <div id="tablaCreditosWrap" style="display:none;">
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th class="col-id" style="font-size:11px;">ID Crédito</th>
+                    <th class="col-empresa">Empresa / NIT</th>
+                    <th class="col-centro">Centro Asignado</th>
+                    <th class="col-monto">Monto Cupo</th>
+                    <th class="col-fecha">Aprobación</th>
+                    <th class="col-estado">Estado</th>
+                    <th class="col-fecha">Vencimiento Doc.</th>
+                    <th class="col-vigencia">Vigencia Doc.</th>
+                    <th class="col-factura">Facturación</th>
+                    <th class="col-novedades">Novedades / Comentarios</th>
+                    <th class="col-perfil" style="text-align:center;">Perfil Creado</th>
+                    <th class="col-acciones" style="text-align:center;">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="crudTableBody">
+                  <!-- Se poblará dinámicamente -->
+                </tbody>
+              </table>
+            </div>
+            <div id="pagCreditos"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══ VISTA: AUDITORÍA ══════════════════════════════ -->
+      <section id="viewAuditoria" class="view-section hidden">
+        <div class="panel-card">
+          <div class="panel-card-header">
+            <h2 class="panel-card-title">Log de auditoría</h2>
+            <button class="btn btn-outline btn-sm" onclick="cargarAuditoria()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;">
+                <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+              </svg>
+              Actualizar
+            </button>
+          </div>
+
+          <div id="auditoriaSkeletonWrap" class="table-skeleton">
+            <div class="sk-table-row hdr" style="height:40px;"></div>
+            <div class="sk-table-row" style="height:50px;margin-top:4px;"></div>
+            <div class="sk-table-row" style="height:50px;margin-top:4px;"></div>
+            <div class="sk-table-row" style="height:50px;margin-top:4px;"></div>
+          </div>
+
+          <div id="auditoriaTableWrap" style="display:none;">
+            <div class="table-responsive">
+              <table class="data-table" id="auditoriaTableEl">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Fecha</th>
+                    <th>Actor</th>
+                    <th>Acción</th>
+                    <th>Solicitud</th>
+                    <th>Detalle</th>
+                  </tr>
+                </thead>
+                <tbody id="auditoriaTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══ VISTA: CENTROS & CRÉDITOS ════════════════════ -->
+      <section id="viewCentrosCreditos" class="view-section hidden">
+        <!-- Barra de filtros para Centros -->
+        <div class="filter-bar panel-card">
+          <div class="filter-bar-left">
+            <div class="search-wrap">
+              <svg class="search-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              <input type="text" id="centrosSearchInput" class="search-input" placeholder="Buscar centro por código, nombre o NIT..." oninput="filtrarCentrosCreditos()">
+            </div>
+          </div>
+          <div class="filter-bar-right">
+            <span class="result-count" id="centrosCreditosResultCount">— centros</span>
+          </div>
+        </div>
+
+        <div class="panel-card" style="margin-top: 16px;">
+          <div class="panel-card-header">
+            <h2 class="panel-card-title">Resumen de créditos por centro</h2>
+          </div>
+          <div class="table-responsive">
+            <table class="data-table" id="tablaCentrosCreditosEl">
+              <thead>
+                <tr>
+                  <th style="width: 120px;">Código Centro</th>
+                  <th>Centro / NIT</th>
+                  <th>Solicitudes Vinculadas</th>
+                  <th style="width: 160px; text-align: right; padding-right: 24px;">Total Aprobado</th>
+                </tr>
+              </thead>
+              <tbody id="centrosCreditosTableBody">
+                <!-- Generado dinámicamente -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══ VISTA: CONFIGURACIÓN ══════════════════════════ -->
+      <section id="viewConfiguracion" class="view-section hidden">
+        <div class="filter-bar panel-card">
+          <div class="filter-bar-left" style="flex:1;">
+            <div class="catalog-tabs">
+              <button class="catalog-tab active" data-value="Comerciales" onclick="selectCatalogTab(this)">Ejecutivos comerciales</button>
+              <button class="catalog-tab" data-value="Centros" onclick="selectCatalogTab(this)">Centros</button>
+              <button class="catalog-tab" data-value="Operaciones_Centros" onclick="selectCatalogTab(this)">Operaciones de centros</button>
+              <button class="catalog-tab" data-value="Monedas" onclick="selectCatalogTab(this)">Monedas</button>
+              <button class="catalog-tab" data-value="TiposDocumento" onclick="selectCatalogTab(this)">Tipos de documento</button>
+              <button class="catalog-tab" data-value="TiposSolicitud" onclick="selectCatalogTab(this)">Tipos de solicitud</button>
+              <input type="hidden" id="configSheetSelect" value="Comerciales">
+            </div>
+          </div>
+          <div class="filter-bar-right">
+            <button class="btn btn-primary btn-sm" onclick="abrirConfigFormModal()" style="display: flex; align-items: center; gap: 6px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" style="width: 14px; height: 14px;">
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              Nuevo registro
+            </button>
+          </div>
+        </div>
+
+        <div class="panel-card" style="margin-top: 16px;">
+          <div class="panel-card-header">
+            <h2 class="panel-card-title" id="configTableTitle">Registros</h2>
+            <span class="result-count" id="configResultCount">— registros</span>
+          </div>
+
+          <div id="configTableSkeleton" class="table-skeleton" style="display: none;">
+            <div class="sk-table-row hdr" style="height: 40px;"></div>
+            <div class="sk-table-row" style="height: 50px; margin-top: 4px;"></div>
+            <div class="sk-table-row" style="height: 50px; margin-top: 4px;"></div>
+            <div class="sk-table-row" style="height: 50px; margin-top: 4px;"></div>
+          </div>
+
+          <div id="configTableWrap">
+            <div class="table-responsive">
+              <table class="data-table" id="configTableEl">
+                <thead id="configTableHead"></thead>
+                <tbody id="configTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══ VISTA: USUARIOS ═══════════════════════════════ -->
+      <section id="viewUsuarios" class="view-section hidden">
+        <div class="filter-bar panel-card">
+          <div class="filter-bar-left">
+            <div class="search-wrap">
+              <svg class="search-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              <input type="text" id="usuariosSearchInput" class="search-input" placeholder="Buscar usuario por nombre o correo..." oninput="filtrarUsuariosFrontend()">
+            </div>
+          </div>
+          <div class="filter-bar-right">
+            <button class="btn btn-primary btn-sm" onclick="abrirCrearUsuarioModal()" style="display: flex; align-items: center; gap: 6px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" style="width: 14px; height: 14px;">
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              Nuevo usuario
+            </button>
+          </div>
+        </div>
+
+        <div class="panel-card" style="margin-top: 16px;">
+          <div class="panel-card-header">
+            <h2 class="panel-card-title">Usuarios del sistema</h2>
+            <span class="result-count" id="usuariosResultCount">— registros</span>
+          </div>
+
+          <div id="usuariosTableSkeleton" class="table-skeleton" style="display: none;">
+            <div class="sk-table-row hdr" style="height: 40px;"></div>
+            <div class="sk-table-row" style="height: 50px; margin-top: 4px;"></div>
+            <div class="sk-table-row" style="height: 50px; margin-top: 4px;"></div>
+          </div>
+
+          <div id="usuariosTableWrap">
+            <div class="table-responsive">
+              <table class="data-table" id="usuariosTableEl">
+                <thead>
+                  <tr>
+                    <th>Nombre</th>
+                    <th>Correo electrónico</th>
+                    <th style="width: 150px;">Rol</th>
+                    <th style="width: 120px; text-align: center;">Estado</th>
+                    <th style="width: 180px;">Último Acceso</th>
+                    <th style="width: 100px; text-align: center;">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="usuariosTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══ VISTA: BACKUPS ════════════════════════════════ -->
+      <section id="viewBackups" class="view-section hidden">
+        <div class="filter-bar panel-card">
+          <div class="filter-bar-left">
+            <span style="font-size: 13.5px; font-weight: 500; color: var(--text2);">
+              Gestión de copias de seguridad de las Hojas de Cálculo de Google y la Base de Datos MySQL
+            </span>
+          </div>
+          <div class="filter-bar-right">
+            <button class="btn btn-primary btn-sm" onclick="crearBackupManual()" style="display: flex; align-items: center; gap: 6px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" style="width: 14px; height: 14px;">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+              Crear backup de emergencia
+            </button>
+          </div>
+        </div>
+
+        <div class="panel-card" style="margin-top: 16px;">
+          <div class="panel-card-header">
+            <h2 class="panel-card-title">Copias de seguridad disponibles</h2>
+            <span class="result-count" id="backupsResultCount">— copias</span>
+          </div>
+
+          <div id="backupsTableSkeleton" class="table-skeleton" style="display: none;">
+            <div class="sk-table-row hdr" style="height: 40px;"></div>
+            <div class="sk-table-row" style="height: 50px; margin-top: 4px;"></div>
+            <div class="sk-table-row" style="height: 50px; margin-top: 4px;"></div>
+            <div class="sk-table-row" style="height: 50px; margin-top: 4px;"></div>
+          </div>
+
+          <div id="backupsTableWrap">
+            <div class="table-responsive">
+              <table class="data-table" id="backupsTableEl">
+                <thead>
+                  <tr>
+                    <th>Nombre de Carpeta</th>
+                    <th>Fecha de Creación</th>
+                    <th style="width: 200px;">Tipo de Backup</th>
+                    <th style="width: 120px; text-align: center; padding-right: 24px;">Acción</th>
+                  </tr>
+                </thead>
+                <tbody id="backupsTableBody">
+                  <!-- Generado dinámicamente -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══ VISTA: NOTIFICACIONES ══════════════════════════ -->
+      <section id="viewNotificaciones" class="view-section hidden">
+        <div class="filter-bar panel-card" style="margin-bottom: 16px;">
+          <div class="filter-bar-left">
+            <h2 class="panel-card-title" style="margin:0;">Todas las notificaciones</h2>
+          </div>
+          <div class="filter-bar-right" style="display:flex; gap:10px;">
+            <button class="btn btn-outline btn-sm" onclick="marcarTodasLeidasSeccion()" style="display:flex; align-items:center; gap:6px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+              Marcar todas como leídas
+            </button>
+            <button class="btn btn-outline btn-sm" onclick="cargarNotificacionesSeccion(true)" style="display:flex; align-items:center; gap:6px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;">
+                <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+              </svg>
+              Actualizar
+            </button>
+          </div>
+        </div>
+
+        <div id="notificacionesSeccionSkeleton" class="table-skeleton">
+          <div class="sk-table-row" style="height:60px;margin-top:8px;"></div>
+          <div class="sk-table-row" style="height:60px;margin-top:8px;"></div>
+          <div class="sk-table-row" style="height:60px;margin-top:8px;"></div>
+          <div class="sk-table-row" style="height:60px;margin-top:8px;"></div>
+        </div>
+
+        <div id="notificacionesSeccionContent" style="display:none;">
+          <ul class="notif-list-seccion" id="notifListSeccion" style="display:flex; flex-direction:column; gap:12px; padding:0; list-style:none;">
+            <!-- Generado dinámicamente -->
+          </ul>
+          <div id="notifSeccionEmpty" class="panel-card notif-empty" style="display:none; padding:32px 16px; text-align:center; color:var(--muted); font-size:13.5px;">
+            No hay notificaciones registradas en el sistema.
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div><!-- #appLayout -->
+
+  <!-- ═══════════════════════════════════════════════════
+       MODAL: EXPEDIENTE (Detalle + IA + Decisión)
+       ═══════════════════════════════════════════════════ -->
+  <div id="modalExpediente" class="drawer-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modalExpTitulo">
+    <div class="drawer-box" id="modalExpBox" style="width: min(720px, 100%);">
+
+      <!-- Header del modal -->
+      <div class="modal-header">
+        <div class="modal-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+          </svg>
+        </div>
+        <div>
+          <h2 class="modal-title" id="modalExpTitulo">Expediente</h2>
+          <p class="modal-sub" id="modalExpSubtitulo">Cargando... información…</p>
+        </div>
+        <button class="modal-close" onclick="cerrarModalExp()" aria-label="Cerrar expediente">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <!-- Tabs de navegación -->
+      <div class="modal-tabs" id="modalTabs" style="display:none;">
+        <button class="modal-tab active" data-tab="info"       id="tabInfo"  onclick="switchTab('info')">Información</button>
+        <button class="modal-tab"        data-tab="documentos" id="tabDocumentos"  onclick="switchTab('documentos')">Documentos</button>
+        <button class="modal-tab"        data-tab="ia"         id="tabIa"    onclick="switchTab('ia')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;">
+            <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z"/>
+          </svg>
+          Análisis IA
+        </button>
+      </div>
+
+      <!-- Cuerpo del modal -->
+      <div class="modal-body" id="modalExpBody">
+
+        <!-- Skeleton loading inicial -->
+        <div id="modalSkeleton">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <div class="sk sk-text" style="width:40%;"></div>
+              <div class="sk sk-input"></div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <div class="sk sk-text" style="width:50%;"></div>
+              <div class="sk sk-input"></div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <div class="sk sk-text" style="width:35%;"></div>
+              <div class="sk sk-input"></div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <div class="sk sk-text" style="width:45%;"></div>
+              <div class="sk sk-input"></div>
+            </div>
+            <div style="grid-column:1/-1;display:flex;flex-direction:column;gap:8px;">
+              <div class="sk sk-text" style="width:30%;"></div>
+              <div class="sk sk-input" style="height:80px;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pestaña: Información del expediente -->
+        <div id="tabContentInfo" class="tab-content" style="display:none;">
+          <div class="info-section-title">Datos de la empresa</div>
+          <div class="info-grid">
+            <div class="info-field"><span class="info-label">Razón Social</span><span class="info-val" id="iRazonSocial">—</span></div>
+            <div class="info-field"><span class="info-label">Nombre Comercial</span><span class="info-val" id="iNombreComercial">—</span></div>
+            <div class="info-field"><span class="info-label">NIT / Identificación</span><span class="info-val info-mono" id="iIdentificacion">—</span></div>
+            <div class="info-field"><span class="info-label">Tipo de solicitud</span><span class="info-val" id="iTipoSolicitud">—</span></div>
+            <div class="info-field"><span class="info-label">¿Es filial CupoFlow?</span><span class="info-val" id="iEsFilial">—</span></div>
+            <div class="info-field"><span class="info-label">Ciudad</span><span class="info-val" id="iCiudad">—</span></div>
+            <div class="info-field"><span class="info-label">Departamento</span><span class="info-val" id="iDepartamento">—</span></div>
+            <div class="info-field"><span class="info-label">Responsabilidad fiscal</span><span class="info-val" id="iResponsabilidadFiscal">—</span></div>
+            <div class="info-field field-full"><span class="info-label">Dirección</span><span class="info-val" id="iDireccion">—</span></div>
+          </div>
+
+          <div class="info-section-title" style="margin-top:20px;">Representante legal</div>
+          <div class="info-grid">
+            <div class="info-field"><span class="info-label">Nombre</span><span class="info-val" id="iRepLegal">—</span></div>
+            <div class="info-field"><span class="info-label">Identificación</span><span class="info-val info-mono" id="iRepId">—</span></div>
+            <div class="info-field"><span class="info-label">Cargo</span><span class="info-val" id="iRepCargo">—</span></div>
+            <div class="info-field"><span class="info-label">Correo</span><span class="info-val" id="iRepCorreo">—</span></div>
+            <div class="info-field"><span class="info-label">Teléfono</span><span class="info-val info-mono" id="iRepTel">—</span></div>
+          </div>
+
+          <div class="info-section-title" style="margin-top:20px;">Solicitud</div>
+          <div class="info-grid">
+            <div class="info-field"><span class="info-label">Monto solicitado</span><span class="info-val info-mono" id="iMonto">—</span></div>
+            <div class="info-field"><span class="info-label">Centro(es)</span><span class="info-val" id="iCentros">—</span></div>
+            <div class="info-field"><span class="info-label">Ejecutivo comercial</span><span class="info-val" id="iEjecutivo">—</span></div>
+            <div class="info-field"><span class="info-label">Fecha envío</span><span class="info-val" id="iFechaEnvio">—</span></div>
+            <div class="info-field" id="iFechaAprobacionWrap" style="display:none;"><span class="info-label">Fecha aprobación</span><span class="info-val" id="iFechaAprobacion">—</span></div>
+            <div class="info-field field-full"><span class="info-label">Comentarios del expediente</span><span class="info-val" id="iComentarios">—</span></div>
+          </div>
+
+          <div class="info-section-title" style="margin-top:20px;">Carpeta en Drive</div>
+          <div class="info-field">
+            <a id="iDriveLink" href="#" target="_blank" class="drive-link hidden">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;">
+                <path d="M22.54 6.42a2.78 2.78 0 0 0-1.95-1.96C18.88 4 12 4 12 4s-6.88 0-8.59.46a2.78 2.78 0 0 0-1.95 1.96A29 29 0 0 0 1 12a29 29 0 0 0 .46 5.58A2.78 2.78 0 0 0 3.41 19.54C5.12 20 12 20 12 20s6.88 0 8.59-.46a2.78 2.78 0 0 0 1.95-1.96A29 29 0 0 0 23 12a29 29 0 0 0-.46-5.58z"/>
+                <polygon points="9.75 15.02 15.5 12 9.75 8.98 9.75 15.02"/>
+              </svg>
+              Abrir carpeta en Google Drive
+            </a>
+          </div>
+        </div>
+
+        <!-- Pestaña: Documentos -->
+        <div id="tabContentDocumentos" class="tab-content" style="display:none;">
+          <div id="docsListWrap">
+            <div id="docsSkeleton">
+              <div class="doc-sk-row sk"></div>
+              <div class="doc-sk-row sk" style="margin-top:8px;"></div>
+              <div class="doc-sk-row sk" style="margin-top:8px;"></div>
+            </div>
+            <div id="docsList" style="display:none;"></div>
+
+            <!-- Panel de Carga de Documentos Adicionales -->
+            <div class="upload-panel" style="margin-top: 24px; border-top: 1px dashed var(--border2); padding-top: 20px;">
+              <h4 style="font-size: 13px; font-weight: 600; color: var(--text2); margin: 0 0 12px 0; text-align: left;">Subir documento adicional</h4>
+              
+              <!-- Zona de arrastre (Dropzone) -->
+              <div id="docDropzone" class="dropzone-box" onclick="document.getElementById('uploadDocFile').click()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width: 28px; height: 28px; color: var(--muted); margin-bottom: 4px;">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+                <div style="font-size: 13px; font-weight: 600; color: var(--text);">Arrastra tu archivo PDF aquí o haz clic para seleccionar</div>
+                <div style="font-size: 11px; color: var(--muted);">Solo se admiten archivos PDF</div>
+                <input type="file" id="uploadDocFile" accept=".pdf" style="display: none;" onchange="onDocFileSelected(this)">
+              </div>
+
+              <div id="uploadDocProgress" style="display: none; font-size: 12px; color: var(--text3); margin-top: 8px; align-items: center; gap: 8px;">
+                <div class="proc-step-spinner" style="width: 14px; height: 14px; margin-left: 0;"></div>
+                <span id="uploadDocStatus">Subiendo archivo...</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pestaña: Análisis IA -->
+        <div id="tabContentIa" class="tab-content" style="display:none;">
+          <div id="iaIdle">
+            <div class="ia-intro">
+              <div class="ia-intro-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z"/>
+                </svg>
+              </div>
+              <div>
+                <h3 class="ia-intro-title">Auditoría Documental con IA</h3>
+                <p class="ia-intro-desc">Gemini IA analizará los documentos PDF del expediente (RUT, Cámara de Comercio y Estados Financieros) y verificará vigencias, extracción de datos e inconsistencias.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Skeleton IA procesando -->
+          <div id="iaSkeleton" style="display:none;">
+            <div class="ia-processing">
+              <div class="ia-processing-dot"></div>
+              <span>Gemini está analizando los documentos…</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:10px;margin-top:16px;">
+              <div class="sk sk-input"></div>
+              <div class="sk sk-input"></div>
+              <div class="sk sk-text" style="width:70%;"></div>
+              <div class="sk sk-input" style="height:80px;"></div>
+            </div>
+          </div>
+
+          <!-- Resultado IA -->
+          <div id="iaResultado" style="display:none;">
+            <div class="ia-result-header" id="iaAlertaBanner" style="display:none;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+              </svg>
+              <span>[Alerta] Alerta de Vigencia Detectada — Uno o más documentos pueden estar vencidos o próximos a vencer.</span>
+            </div>
+            <div class="ia-result-header" id="iaAlertaFirma" style="display:none; background: var(--danger-bg); border-color: var(--danger-border); color: var(--danger);">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--danger);">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+              </svg>
+              <span>[Alerta] Segunda Firma Requerida — La empresa no cuenta con la capacidad de pago del monto solicitado, por lo que se requiere una segunda firma de otro representante legal.</span>
+            </div>
+            <div id="iaSavedBadge" style="display:none;margin-bottom:12px;padding:8px 12px;background:var(--info-bg);border:1px solid var(--info-border);color:var(--info);border-radius:var(--radius-sm);font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;flex-shrink:0;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13"/></svg>
+              <span>Análisis cargado de los comentarios guardados en el expediente</span>
+            </div>
+            <div class="ia-result-grid">
+              <div class="ia-field"><span class="ia-label">NIT verificado</span><span class="ia-val info-mono" id="iaNit">—</span></div>
+              <div class="ia-field"><span class="ia-label">Razón Social</span><span class="ia-val" id="iaRazonSocial">—</span></div>
+              <div class="ia-field"><span class="ia-label">Representante Legal</span><span class="ia-val" id="iaRepLegal">—</span></div>
+              <div class="ia-field"><span class="ia-label">Alerta de vigencia</span>
+                <span class="ia-val" id="iaVigencia">—</span>
+              </div>
+              <div class="ia-field field-full" style="display: flex; flex-direction: column;">
+                <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                  <span class="ia-label">Observaciones de auditoría</span>
+                  <div style="display: flex; gap: 8px; align-items: center;">
+                    <button id="btnCopiarIA" class="btn btn-outline btn-xs" onclick="copiarReporteIA()" style="padding: 4px 8px; font-size: 11px; display: flex; align-items: center; gap: 4px; border-radius: var(--radius-sm);">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width: 12px; height: 12px;">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                      </svg>
+                      Copiar
+                    </button>
+                  </div>
+                </div>
+                <div id="iaObsPreviewContainer" class="ia-obs-container" style="width: 100%;">
+                  <span class="ia-val" id="iaObservaciones">—</span>
+                </div>
+              </div>
+            </div>
+            <div style="margin-top:16px;display:flex;gap:10px;">
+              <button id="btnGuardarIA" class="btn btn-primary btn-sm" onclick="guardarResultadoIA()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13"/><polyline points="7 3 7 8 15 8"/></svg>
+                Guardar en expediente
+              </button>
+              <button class="btn btn-outline btn-sm" onclick="ejecutarIA()">Volver a analizar</button>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- modal-body -->
+
+      <!-- Footer del modal -->
+      <div class="modal-footer" id="modalExpFooter">
+        <div class="modal-footer-left">
+          <button class="btn btn-outline" id="btnEditarSolicitud" onclick="abrirEditarSolicitud()" style="color:var(--gold); display:none;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:14px; height:14px; margin-right:4px;">
+              <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+            </svg>
+            Editar
+          </button>
+          <button class="btn btn-outline" id="btnEliminarSolicitud" onclick="confirmarEliminarSolicitud()" style="color:var(--danger); display:none;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:14px; height:14px; margin-right:4px;">
+              <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>
+            </svg>
+            Eliminar
+          </button>
+        </div>
+        <div class="modal-footer-right" id="modalExpFooterRight" style="display:none;">
+          <button class="btn btn-ai" id="btnAnalizarIA" onclick="ejecutarIA()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z"/>
+            </svg>
+            Análisis con IA
+          </button>
+          <button class="btn btn-success" id="btnAprobar" onclick="confirmarAccion('APROBADA')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:15px;height:15px;"><polyline points="20 6 9 17 4 12"/></svg>
+            Aprobar
+          </button>
+          <button class="btn btn-warning" id="btnDevolver" onclick="confirmarAccion('DEVUELTA')" style="background:#ea7734; color:#ffffff; border-color:#ea7734;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:15px;height:15px;"><path d="M3 10h10a5 5 0 0 1 5 5v2"/><polyline points="7 6 3 10 7 14"/></svg>
+            Devolver
+          </button>
+          <button class="btn btn-danger" id="btnRechazar" onclick="confirmarAccion('RECHAZADA TEMPORALMENTE')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:15px;height:15px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            Rechazar
+          </button>
+        </div>
+      </div>
+    </div>
+  </div><!-- #modalExpediente -->
+
+  <!-- ═══════════════════════════════════════════════════
+       MODAL: CONFIRMACIÓN (Aprobar / Rechazar)
+       ═══════════════════════════════════════════════════ -->
+  <div id="modalConfirm" class="val-modal-overlay hidden" role="dialog" aria-modal="true" style="z-index: 1400;">
+    <div class="val-modal-box" id="modalConfirmBox">
+      <div class="val-modal-head" id="confirmHead">
+        <div class="val-modal-head-ico" id="confirmIco">
+          <svg viewBox="0 0 20 20" fill="currentColor"><path d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm-1-5a1 1 0 0 1 1 1v2a1 1 0 0 1-2 0V9a1 1 0 0 1 1-1z"/></svg>
+        </div>
+        <h3 class="val-modal-title" id="confirmTitulo">Confirmar acción</h3>
+      </div>
+      <div class="val-modal-body">
+        <p class="val-modal-msg" id="confirmMsg">¿Estás seguro de realizar esta acción...</p>
+
+        <!-- Sección de aprobación de crédito (oculta por defecto, solo visible si accion === 'APROBADA') -->
+        <div id="confirmAprobacionSeccion" style="display:none; margin-top: 16px; border-top: 1px solid var(--border2); padding-top: 16px;">
+          
+          <!-- Checkbox para enviar carta (oculto, obligatorio) -->
+          <input type="checkbox" id="confirmEnviarCarta" checked style="display:none;">
+
+          <!-- Contenedor de detalles de carta (sólo visible si checkbox está checked) -->
+          <div id="enviarCartaDetalles">
+            
+            <!-- Fila 1: Emails de contacto y Aceptación (Tres columnas responsivas) -->
+            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:16px; margin-bottom:16px;">
+              <!-- Email Representante Legal -->
+              <div class="field" style="margin-bottom:0; display: flex; flex-direction: column; gap: 4px; text-align: left;">
+                <label for="confirmCorreoRep" style="font-size:12px; font-weight:600; color:var(--text2); text-align: left;">Correo del Representante Legal</label>
+                <input type="email" id="confirmCorreoRep" placeholder="nombre@example.com" style="width:100%; padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:'Outfit',sans-serif; font-size:13px; box-sizing:border-box;">
+              </div>
+
+              <!-- Email Ejecutivo de Cuenta -->
+              <div class="field" style="margin-bottom:0; display: flex; flex-direction: column; gap: 4px; text-align: left;">
+                <label for="confirmCorreoEjecutivo" style="font-size:12px; font-weight:600; color:var(--text2); text-align: left;">Correo del Ejecutivo Comercial (Copia)</label>
+                <input type="email" id="confirmCorreoEjecutivo" placeholder="ejecutivo@example.com" style="width:100%; padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:'Outfit',sans-serif; font-size:13px; box-sizing:border-box;">
+              </div>
+
+              <!-- Aceptado por -->
+              <input type="hidden" id="confirmAceptadoPor" value="Area de credito y cartera">
+            </div>
+
+            <!-- Fila 2: Configuración de Cupo Total -->
+            <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin-bottom: 16px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 8px; flex-wrap: wrap;">
+                <label for="confirmMontoAprobado" style="font-size: 13px; font-weight: 700; color: var(--text);">Monto Total Aprobado (<span id="confirmMoneda">COP</span>)</label>
+                <div style="display: flex; align-items: center; border: 1px solid var(--border2); border-radius: var(--radius-sm); background: var(--surface); padding: 4px 10px; width: 220px; box-sizing: border-box;">
+                  <span style="font-size: 11px; font-weight: 700; color: var(--muted); margin-right: 6px;">$</span>
+                  <input type="text" id="confirmMontoAprobado" style="width: 100%; border: none; background: transparent; color: var(--text); font-family: 'Outfit', sans-serif; font-size: 14px; font-weight: 700; text-align: right; outline: none;">
+                </div>
+              </div>
+              <div style="font-size: 12.5px; color: var(--text2); margin-top: 6px; font-weight: 500; text-align: left; margin-bottom: 8px;">
+                Solicitado por el cliente: <strong id="confirmMontoSolicitadoTexto" style="color: var(--gold); font-family: var(--font-mono);">—</strong>
+              </div>
+              <div style="font-size: 11.5px; color: var(--muted); line-height: 1.4; text-align: left;">
+                <span style="color: var(--gold); font-weight: bold; margin-right: 4px;">ℹ</span> El cupo total se distribuirá equitativamente de forma automática. Puede ajustar los montos individuales en cada centro a continuación.
+              </div>
+            </div>
+
+            <!-- Fila 3: Distribución por Centro (Grid 2 columnas) -->
+            <div style="display: flex; flex-direction: column; gap: 6px; text-align: left; margin-bottom: 16px;">
+              <label style="font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 4px;">Distribución de cupo por centro</label>
+              <div id="confirmCentrosDistribucion" style="border: 1px solid var(--border2); border-radius: var(--radius); padding: 12px; max-height: 240px; overflow-y: auto; background: var(--surface2); display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 10px;">
+                <!-- Se poblará dinámicamente -->
+              </div>
+              
+              <!-- Alerta sumatoria -->
+              <div id="confirmSumaAlerta" style="font-size: 12px; padding: 10px 14px; border-radius: var(--radius-sm); margin-top: 8px; text-align: left; display: none;">
+                <!-- Mensaje de validación -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="field" style="margin-bottom:0;" id="confirmComentarioSeccion">
+          <label for="confirmComentario" style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:6px;display:block;">Comentario (opcional)</label>
+          <textarea id="confirmComentario" rows="3" placeholder="Agrega un comentario o justificación para esta decisión…"
+            style="width:100%;resize:vertical;min-height:70px;padding:10px 12px;
+                   border:1px solid var(--border2);border-radius:var(--radius-sm);
+                   background:var(--surface2);font-family:'Outfit',sans-serif;font-size:13px;
+                   color:var(--text);outline:none;box-sizing:border-box;"></textarea>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:16px;">
+          <button class="btn btn-primary" id="confirmBtnAccept" onclick="ejecutarAccionConfirmada()" style="flex:1;">Confirmar</button>
+          <button class="btn btn-outline" onclick="cerrarModalConfirm()" style="flex:1;">Cancelar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════
+       MODAL: CONFIGURACIÓN REGISTRO (Crear / Editar)
+       ═══════════════════════════════════════════════════ -->
+  <div id="modalConfiguracion" class="val-modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="val-modal-box" id="modalConfiguracionBox">
+      <div class="val-modal-head" style="background: linear-gradient(135deg, var(--navy2), var(--navy));">
+        <div class="val-modal-head-ico">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        </div>
+        <h3 class="val-modal-title" id="configFormTitle">Formulario</h3>
+      </div>
+      <div class="val-modal-body">
+        <form id="configForm" onsubmit="event.preventDefault();" style="display:flex; flex-direction:column; gap:12px; text-align:left;">
+          <div id="configFormInputs" style="display:flex; flex-direction:column; gap:12px;">
+            <!-- Generado dinámicamente -->
+          </div>
+          <div style="display:flex; gap:10px; margin-top:20px;">
+            <button type="button" class="btn btn-primary" onclick="guardarRegistroConfig()" style="flex:1;">Guardar</button>
+            <button type="button" class="btn btn-outline" onclick="cerrarConfigFormModal()" style="flex:1;">Cancelar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════
+       MODAL: CARGA DE PROCESOS (Loading Process Modal)
+       ═══════════════════════════════════════════════════ -->
+  <div id="modalLoadingProcess" class="proc-loading-overlay hidden" role="dialog" aria-modal="true">
+    <div class="proc-loading-box">
+      <!-- Spinner / Checkmark principal -->
+      <div class="proc-loading-spinner-wrap" id="procLoadingSpinnerWrap">
+        <!-- Generado dinámicamente -->
+      </div>
+      
+      <h3 id="procLoadingTitle">Procesando Aprobación</h3>
+      <p id="procLoadingDesc">Por favor, no cierres esta ventana. El servidor está procesando tu solicitud.</p>
+      
+      <!-- Lista de pasos -->
+      <div class="proc-loading-steps" id="procLoadingStepsContainer">
+        <!-- Generado dinámicamente -->
+      </div>
+      
+      <!-- Botón de Cerrar (Solo en caso de error) -->
+      <button id="procLoadingCloseBtn" class="btn btn-outline" onclick="PROCESS_LOADER.hide()" style="width: 100%; display: none;">
+        Cerrar y volver
+      </button>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════
+       PANEL LATERAL (DRAWER): DETALLE DEL CENTRO Y SUS CRÉDITOS
+       ═══════════════════════════════════════════════════ -->
+  <div id="modalCentroDetalle" class="drawer-overlay hidden" role="dialog" aria-modal="true">
+    <div class="drawer-box" id="modalCentroDetalleBox">
+      <div class="modal-header" style="border-bottom: 1px solid var(--border); padding: 20px;">
+        <div class="modal-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+            <polyline points="9 22 9 12 15 12 15 22"/>
+          </svg>
+        </div>
+        <div style="flex: 1; text-align: left;">
+          <h3 class="modal-title" id="mCentroTitulo">Detalles del centro</h3>
+          <p class="modal-sub" id="mCentroSubtitulo">Información general y créditos vinculados</p>
+        </div>
+        <button class="modal-close" onclick="cerrarModalCentro()" title="Cerrar panel" aria-label="Cerrar panel">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body" style="padding: 20px;">
+        
+        <!-- Info del Centro -->
+        <div class="info-section-title">Información del Centro</div>
+        <div class="info-grid" style="margin-bottom: 24px; grid-template-columns: 1fr;">
+          <div class="info-field">
+            <span class="info-label">Código Centro</span>
+            <span class="info-val info-mono" id="mCentroCodigo">—</span>
+          </div>
+          <div class="info-field">
+            <span class="info-label">Nombre Comercial</span>
+            <span class="info-val" id="mCentroNombre">—</span>
+          </div>
+          <div class="info-field">
+            <span class="info-label">Razón Social</span>
+            <span class="info-val" id="mCentroRazon">—</span>
+          </div>
+          <div class="info-field">
+            <span class="info-label">NIT</span>
+            <span class="info-val info-mono" id="mCentroNit">—</span>
+          </div>
+          <div class="info-field">
+            <span class="info-label">Correo de Operaciones</span>
+            <span class="info-val info-mono" id="mCentroCorreo">—</span>
+          </div>
+        </div>
+
+        <!-- Solicitudes Vinculadas -->
+        <div class="info-section-title" id="mCentroSolicitudesTitulo">Solicitudes de crédito vinculadas (0)</div>
+        <div id="mCentroSolicitudesBody" style="display: flex; flex-direction: column; gap: 10px; max-height: calc(100vh - 460px); overflow-y: auto; padding-right: 4px;">
+          <!-- Generado dinámicamente como listado de tarjetas -->
+        </div>
+
+      </div>
+      <div class="modal-footer" style="padding: 16px 20px; border-top: 1px solid var(--border);">
+        <div class="modal-footer-left">
+          <span style="font-size: 13.5px; font-weight: 600; color: var(--text2);">Total Aprobado: <span id="mCentroTotalAprobado" style="color: var(--gold); font-weight: 700; font-family: var(--font-mono);">$ 0</span></span>
+        </div>
+        <div class="modal-footer-right">
+          <button class="btn btn-outline" onclick="cerrarModalCentro()">Cerrar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════
+       PANEL LATERAL (DRAWER): DETALLE DE CRÉDITO INDIVIDUAL
+       ═══════════════════════════════════════════════════ -->
+  <div id="modalCreditoDetalle" class="drawer-overlay hidden" role="dialog" aria-modal="true">
+    <div class="drawer-box" id="modalCreditoDetalleBox">
+      <div class="modal-header" style="border-bottom: 1px solid var(--border); padding: 20px;">
+        <div class="modal-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="4" width="20" height="16" rx="2"/>
+            <line x1="2" y1="10" x2="22" y2="10"/>
+          </svg>
+        </div>
+        <div style="flex: 1; text-align: left;">
+          <h3 class="modal-title" id="mCreditoTitulo">Detalles del crédito</h3>
+          <p class="modal-sub" id="mCreditoSubtitulo">Información detallada y novedades</p>
+        </div>
+        <button class="modal-close" onclick="cerrarModalCreditoDetalle()" title="Cerrar panel" aria-label="Cerrar panel">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body" style="padding: 20px;">
+        
+        <div class="info-section-title">Información General</div>
+        <div class="info-grid" style="margin-bottom: 20px;">
+          <div class="info-field">
+            <span class="info-label">ID Crédito</span>
+            <span class="info-val info-mono" id="mCreditoId">—</span>
+          </div>
+          <div class="info-field">
+            <span class="info-label">NIT</span>
+            <span class="info-val info-mono" id="mCreditoNit">—</span>
+          </div>
+          <div class="info-field field-full">
+            <span class="info-label">Razón Social</span>
+            <span class="info-val" id="mCreditoRazonSocial">—</span>
+          </div>
+          <div class="info-field">
+            <span class="info-label">Centro</span>
+            <span class="info-val" id="mCreditoCentro">—</span>
+          </div>
+          <div class="info-field">
+            <span class="info-label">Monto Asignado</span>
+            <span class="info-val info-mono" id="mCreditoMonto" style="color:var(--gold); font-weight:700;">—</span>
+          </div>
+          <div class="info-field">
+            <span class="info-label">Fecha Aprobación</span>
+            <span class="info-val info-mono" id="mCreditoFechaAprobacion">—</span>
+          </div>
+          <div class="info-field">
+            <span class="info-label">Estado Crédito</span>
+            <span class="info-val" id="mCreditoEstadoBadge">—</span>
+          </div>
+        </div>
+
+        <div class="info-section-title">Documentación</div>
+        <div class="info-grid" style="margin-bottom: 20px;">
+          <div class="info-field">
+            <span class="info-label">Fecha Recibido Doc.</span>
+            <span class="info-val info-mono" id="mCreditoFechaRecibido">—</span>
+          </div>
+          <div class="info-field">
+            <span class="info-label">Fecha Vencimiento Doc.</span>
+            <span class="info-val info-mono" id="mCreditoFechaVencimiento">—</span>
+          </div>
+          <div class="info-field">
+            <span class="info-label">Vigencia Doc.</span>
+            <span class="info-val" id="mCreditoVigenciaBadge">—</span>
+          </div>
+          <div class="info-field">
+            <span class="info-label">Email Facturación</span>
+            <span class="info-val" id="mCreditoFacturacion">—</span>
+          </div>
+          <div class="info-field">
+            <span class="info-label">Perfil Creado (ERP/Centro)</span>
+            <span class="info-val" id="mCreditoPerfilCreado">—</span>
+          </div>
+        </div>
+
+        <div class="info-section-title">Novedades & Auditoría</div>
+        <div class="info-grid" style="margin-bottom: 20px;">
+          <div class="info-field">
+            <span class="info-label">Aprobado Por</span>
+            <span class="info-val" id="mCreditoAprobadoPor">—</span>
+          </div>
+          <div class="info-field">
+            <span class="info-label">Solicitado Por</span>
+            <span class="info-val" id="mCreditoSolicitadoPor">—</span>
+          </div>
+          <div class="info-field field-full">
+            <span class="info-label">Novedades / Comentarios</span>
+            <span class="info-val" id="mCreditoNovedades" style="white-space: pre-wrap; background: var(--surface2); padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border2); min-height: 40px; margin-top: 4px;">—</span>
+          </div>
+          <div class="info-field field-full" id="mCreditoRazonBloqueoContainer" style="display:none;">
+            <span class="info-label" style="color:var(--danger);">Razón de Bloqueo / Suspensión</span>
+            <span class="info-val" id="mCreditoRazonBloqueo" style="white-space: pre-wrap; background: var(--danger-bg); color: var(--danger); padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--danger-border); min-height: 40px; margin-top: 4px; font-weight: 600;">—</span>
+          </div>
+        </div>
+
+      </div>
+      <div class="modal-footer" style="padding: 16px 20px; border-top: 1px solid var(--border);">
+        <div class="modal-footer-left">
+          <button class="btn btn-outline" id="btnEditarCreditoDrawer" style="color:var(--gold);">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:14px; height:14px; margin-right:4px;">
+              <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+            </svg>
+            Editar Crédito
+          </button>
+        </div>
+        <div class="modal-footer-right">
+          <button class="btn btn-outline" onclick="cerrarModalCreditoDetalle()">Cerrar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════
+       MODAL: CREAR USUARIO (Manual Admin Flow)
+       ═══════════════════════════════════════════════════ -->
+  <div id="modalCrearUsuario" class="val-modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="val-modal-box" id="modalCrearUsuarioBox" style="max-width: 440px;">
+      <div class="val-modal-head" style="background: linear-gradient(135deg, var(--navy2), var(--navy));">
+        <div class="val-modal-head-ico">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+            <circle cx="8.5" cy="7" r="4"/>
+            <line x1="20" y1="8" x2="20" y2="14"/>
+            <line x1="23" y1="11" x2="17" y2="11"/>
+          </svg>
+        </div>
+        <h3 class="val-modal-title">Registrar nuevo usuario</h3>
+      </div>
+      <div class="val-modal-body">
+        <form id="crearUsuarioForm" onsubmit="event.preventDefault();" style="display:flex; flex-direction:column; gap:14px; text-align:left;">
+          <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+            <label style="font-size:12px; font-weight:600; color:var(--text2);">Nombre Completo</label>
+            <input type="text" id="mUserNombre" placeholder="Nombre completo" required style="padding:9px 12px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;">
+          </div>
+          <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+            <label style="font-size:12px; font-weight:600; color:var(--text2);">Correo Electrónico</label>
+            <input type="email" id="mUserEmail" placeholder="usuario@example.com" required style="padding:9px 12px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;">
+          </div>
+          <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+            <label style="font-size:12px; font-weight:600; color:var(--text2);">Contraseña Inicial</label>
+            <input type="password" id="mUserPassword" placeholder="Contraseña de acceso" required style="padding:9px 12px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;">
+          </div>
+          <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+            <label style="font-size:12px; font-weight:600; color:var(--text2);">Rol del Usuario</label>
+            <select id="mUserRol" style="padding:9px 12px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box; outline:none; height:37px;">
+              <option value="CONSULTAS" selected>Consulta de Créditos (CONSULTAS)</option>
+              <option value="ADMIN">Administrador (ADMIN)</option>
+            </select>
+          </div>
+          <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+            <label style="font-size:12px; font-weight:600; color:var(--text2);">Firma digital (PNG, opcional)</label>
+            <input type="file" id="mUserFirmaInput" accept="image/png" onchange="previsualizarFirmaNuevoUsuario(this)" style="padding:6px 0; font-family:inherit; font-size:12px; color:var(--text2);">
+          </div>
+
+          <div style="display:flex; gap:10px; margin-top:16px;">
+            <button type="button" class="btn btn-primary" onclick="guardarNuevoUsuario()" style="flex:1;">Registrar</button>
+            <button type="button" class="btn btn-outline" onclick="cerrarCrearUsuarioModal()" style="flex:1;">Cancelar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════
+       MODAL: EDITAR USUARIO (Manual Admin Flow)
+       ═══════════════════════════════════════════════════ -->
+  <div id="modalEditarUsuario" class="val-modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="val-modal-box" id="modalEditarUsuarioBox" style="max-width: 440px;">
+      <div class="val-modal-head" style="background: linear-gradient(135deg, var(--navy2), var(--navy));">
+        <div class="val-modal-head-ico">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+          </svg>
+        </div>
+        <h3 class="val-modal-title">Editar usuario</h3>
+      </div>
+      <div class="val-modal-body">
+        <form id="editarUsuarioForm" onsubmit="event.preventDefault();" style="display:flex; flex-direction:column; gap:14px; text-align:left;">
+          <input type="hidden" id="mEditUserEmailOriginal">
+          <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+            <label style="font-size:12px; font-weight:600; color:var(--text2);">Nombre Completo</label>
+            <input type="text" id="mEditUserNombre" placeholder="Nombre completo" required style="padding:9px 12px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;">
+          </div>
+          <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+            <label style="font-size:12px; font-weight:600; color:var(--text2);">Correo Electrónico</label>
+            <input type="email" id="mEditUserEmail" placeholder="usuario@example.com" required style="padding:9px 12px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;">
+          </div>
+          <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+            <label style="font-size:12px; font-weight:600; color:var(--text2);">Nueva Contraseña (Opcional)</label>
+            <input type="password" id="mEditUserPassword" placeholder="Dejar en blanco para no cambiar" style="padding:9px 12px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;">
+          </div>
+          <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+            <label style="font-size:12px; font-weight:600; color:var(--text2);">Rol del Usuario</label>
+            <select id="mEditUserRol" style="padding:9px 12px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box; outline:none; height:37px;">
+              <option value="CONSULTAS">Consulta de Créditos (CONSULTAS)</option>
+              <option value="ADMIN">Administrador (ADMIN)</option>
+            </select>
+          </div>
+
+          <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+            <label style="font-size:12px; font-weight:600; color:var(--text2);">Firma digital (PNG, para cartas de aprobación)</label>
+            <div id="mEditUserFirmaPreviewWrap" class="hidden" style="display:flex; align-items:center; gap:10px; padding:8px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2);">
+              <img id="mEditUserFirmaPreview" src="" alt="Firma actual" style="height:36px; max-width:160px; object-fit:contain; background:#fff; border-radius:4px; padding:2px;">
+              <button type="button" class="btn btn-outline" style="padding:4px 10px; font-size:11px;" onclick="eliminarFirmaUsuarioSeleccionado()">Eliminar firma</button>
+            </div>
+            <input type="file" id="mEditUserFirmaInput" accept="image/png" onchange="previsualizarFirmaUsuario(this)" style="padding:6px 0; font-family:inherit; font-size:12px; color:var(--text2);">
+            <span style="font-size:11px; color:var(--text2);">Se usará como firma de quien aprueba en la carta generada. Déjalo vacío para no cambiarla.</span>
+          </div>
+
+          <div style="display:flex; gap:10px; margin-top:16px;">
+            <button type="button" class="btn btn-primary" onclick="guardarEdicionUsuario()" style="flex:1;">Guardar Cambios</button>
+            <button type="button" class="btn btn-outline" onclick="cerrarEditarUsuarioModal()" style="flex:1;">Cancelar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════
+       MODAL: EDITAR CRÉDITO INDIVIDUAL (CRUD)
+       ═══════════════════════════════════════════════════ -->
+  <div id="modalCrud" class="val-modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="val-modal-box" id="modalCrudBox" style="width: min(600px, 95vw);">
+      <div class="val-modal-head" style="background: linear-gradient(135deg, var(--navy2), var(--navy));">
+        <div class="val-modal-head-ico">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <rect x="2" y="4" width="20" height="16" rx="2"/>
+            <line x1="2" y1="10" x2="22" y2="10"/>
+          </svg>
+        </div>
+        <h3 class="val-modal-title" id="modalCrudTitle">Editar crédito</h3>
+        <button class="modal-close" onclick="cerrarModalCrud()" title="Cerrar" style="background:rgba(255,255,255,0.1); color:#fff; border:none; margin-left:auto;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="val-modal-body" style="padding: 20px;">
+        <form id="crudForm" onsubmit="event.preventDefault();" style="display:flex; flex-direction:column; gap:12px; text-align:left;">
+          
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Razón Social</label>
+              <input type="text" id="crud_razon_social" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;">
+            </div>
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">NIT</label>
+              <input type="text" id="crud_nit" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;">
+            </div>
+          </div>
+
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Centro</label>
+              <select id="crud_centro" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box; outline:none; height:35px;">
+                <option value="">Seleccione un centro...</option>
+              </select>
+            </div>
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Monto Asignado</label>
+              <input type="text" id="crud_monto" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;">
+            </div>
+          </div>
+
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Fecha Aprobación</label>
+              <input type="text" id="crud_fecha_aprobacion" disabled style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface3); color:var(--muted); font-family:inherit; font-size:13px; box-sizing:border-box;">
+            </div>
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Estado Crédito</label>
+              <select id="crud_estado_credito" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box; outline:none; height:35px;">
+                <option value="Vigente">Vigente</option>
+                <option value="Por Vencer">Por Vencer</option>
+                <option value="Vencido">Vencido</option>
+                <option value="Bloqueado Corporativo">Bloqueado Corporativo</option>
+                <option value="Bloqueado Gerencia">Bloqueado Gerencia</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field" id="crud_razon_bloqueo_container" style="display:none; flex-direction:column; gap:4px;">
+            <label style="font-size:11px; font-weight:700; color:var(--danger); text-transform:uppercase;">Razón de Bloqueo / Suspensión</label>
+            <textarea id="crud_razon_bloqueo" rows="2" placeholder="Escribe la razón detallada de la suspensión..." style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box; resize:vertical;"></textarea>
+          </div>
+
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Fecha Recibido Doc. (DD/MM/YYYY)</label>
+              <input type="text" id="crud_fecha_recibido_doc" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;" placeholder="31/12/2026">
+            </div>
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Fecha Vencimiento Doc. (DD/MM/YYYY)</label>
+              <input type="text" id="crud_fecha_venc_doc" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;" placeholder="31/12/2027">
+            </div>
+          </div>
+
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Vigencia Doc.</label>
+              <select id="crud_vigencia_doc" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box; outline:none; height:35px;">
+                <option value="Vigente">Vigente</option>
+                <option value="No Vigente">No Vigente</option>
+                <option value="Por Vencer">Por Vencer</option>
+              </select>
+            </div>
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Facturación Electrónica (Email)</label>
+              <input type="email" id="crud_facturacion_electronica" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;">
+            </div>
+          </div>
+
+          <div class="field" style="display:flex; align-items:center; gap:8px; margin:8px 0 12px 0;">
+            <input type="checkbox" id="crud_perfil_creado" class="perfil-creado-chk">
+            <label for="crud_perfil_creado" style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; cursor:pointer; user-select:none;">Perfil Creado (ERP/Centro)</label>
+          </div>
+
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Aprobado por</label>
+              <input type="text" id="crud_aprobado_por" disabled style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface3); color:var(--muted); font-family:inherit; font-size:13px; box-sizing:border-box;">
+            </div>
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Solicitado por</label>
+              <input type="text" id="crud_solicitado_por" disabled style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface3); color:var(--muted); font-family:inherit; font-size:13px; box-sizing:border-box;">
+            </div>
+          </div>
+
+          <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+            <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Novedades / Comentarios</label>
+            <textarea id="crud_novedades" rows="2" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box; resize:vertical;"></textarea>
+          </div>
+
+          <div style="display:flex; gap:10px; margin-top:20px;">
+            <button type="button" class="btn btn-primary" id="crudSaveBtn" onclick="guardarCredito()" style="flex:1;">Guardar</button>
+            <button type="button" class="btn btn-outline" onclick="cerrarModalCrud()" style="flex:1;">Cancelar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════
+       MODAL: EDITAR SOLICITUD (CRUD)
+       ═══════════════════════════════════════════════════ -->
+  <div id="modalEditarSolicitud" class="val-modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="val-modal-box val-modal-box-lg" id="modalEditarSolicitudBox">
+      <div class="val-modal-head" style="background: linear-gradient(135deg, var(--navy2), var(--navy));">
+        <div class="val-modal-head-ico">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+          </svg>
+        </div>
+        <h3 class="val-modal-title">Editar solicitud</h3>
+        <button class="modal-close" onclick="cerrarEditarSolicitud()" title="Cerrar" style="background:rgba(255,255,255,0.1); color:#fff; border:none; margin-left:auto;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="val-modal-body" style="padding: 20px;">
+        <form id="editarSolicitudForm" onsubmit="event.preventDefault();" style="display:flex; flex-direction:column; gap:16px; text-align:left;">
+          
+          <div class="info-section-title">Datos de la Empresa</div>
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:12px;">
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Razón Social</label>
+              <input type="text" id="edit_razon_social" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;">
+            </div>
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Nombre Comercial</label>
+              <input type="text" id="edit_nombre_comercial" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;">
+            </div>
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">NIT / Identificación</label>
+              <input type="text" id="edit_identificacion" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;">
+            </div>
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Tipo Solicitud</label>
+              <select id="edit_tipo_solicitud" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box; outline:none; height:35px;">
+                <option value="NUEVA">Nueva</option>
+                <option value="AMPLIACION">Ampliación</option>
+                <option value="RENOVACION">Renovación</option>
+                <option value="HOMOLOGACION">Homologación</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:12px;">
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Dirección</label>
+              <input type="text" id="edit_direccion" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;">
+            </div>
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Ciudad</label>
+              <input type="text" id="edit_ciudad" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;">
+            </div>
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Departamento</label>
+              <input type="text" id="edit_departamento" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;">
+            </div>
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Â¿¿Es Filial CupoFlow...</label>
+              <select id="edit_es_filial" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box; outline:none; height:35px;">
+                <option value="NO">No</option>
+                <option value="SI">Sí</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="info-section-title">Representante Legal</div>
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px;">
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Nombre Representante</label>
+              <input type="text" id="edit_nombre_rep_legal" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;">
+            </div>
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Tipo ID</label>
+              <input type="text" id="edit_tipo_id_rep" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;">
+            </div>
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Número ID</label>
+              <input type="text" id="edit_num_id_rep" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;">
+            </div>
+          </div>
+
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px;">
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Cargo</label>
+              <input type="text" id="edit_cargo_rep" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;">
+            </div>
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Correo Electrónico</label>
+              <input type="email" id="edit_correo_rep" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;">
+            </div>
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Teléfono</label>
+              <input type="text" id="edit_tel_rep" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;">
+            </div>
+          </div>
+
+          <div class="info-section-title">Crédito & Centros</div>
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:12px;">
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Monto Solicitado</label>
+              <input type="text" id="edit_monto" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;">
+            </div>
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Moneda</label>
+              <input type="text" id="edit_moneda" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;">
+            </div>
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Códigos de Centro (separados por coma)</label>
+              <input type="text" id="edit_centro_codigo" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;" placeholder="CDNORTE, CDSUR">
+            </div>
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Ejecutivo Comercial</label>
+              <input type="text" id="edit_ejecutivo_cuenta" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;">
+            </div>
+          </div>
+
+          <div class="info-section-title">Facturación & Observaciones</div>
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:12px;">
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Correo Facturación</label>
+              <input type="email" id="edit_fact_email" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box;">
+            </div>
+            <div class="field" style="display:flex; flex-direction:column; gap:4px;">
+              <label style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Comentarios</label>
+              <textarea id="edit_comentarios" rows="2" style="padding:8px 10px; border:1px solid var(--border2); border-radius:var(--radius-sm); background:var(--surface2); color:var(--text); font-family:inherit; font-size:13px; box-sizing:border-box; resize:vertical;"></textarea>
+            </div>
+          </div>
+
+          <div style="display:flex; gap:10px; margin-top:20px;">
+            <button type="button" class="btn btn-primary" onclick="guardarEdicionSolicitud()" style="flex:1;">Guardar Cambios</button>
+            <button type="button" class="btn btn-outline" onclick="cerrarEditarSolicitud()" style="flex:1;">Cancelar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════
+       MODALS: BACKUPS & RESTORATION FLOW
+       ═══════════════════════════════════════════════════ -->
+  
+  <!-- 1. Advertencia Crítica (Primer Modal) -->
+  <div id="modalBackupAdvertencia" class="val-modal-overlay hidden" role="dialog" aria-modal="true" style="z-index: 1500;">
+    <div class="val-modal-box" style="max-width: 480px;">
+      <div class="val-modal-head" style="background: linear-gradient(135deg, #e74c3c, #c0392b);">
+        <div class="val-modal-head-ico">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+            <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+        </div>
+        <h3 class="val-modal-title">¡ADVERTENCIA CRÍTICA!</h3>
+      </div>
+      <div class="val-modal-body" style="padding: 20px; text-align: left;">
+        <p style="font-size: 14px; line-height: 1.5; color: var(--text); margin-bottom: 14px; font-weight: 600;">
+          Está a punto de restaurar la copia de seguridad: <br>
+          <strong id="warnBackupName" style="color: #e74c3c; font-family: var(--font-mono); font-size: 13.5px;">—</strong>
+        </p>
+        <p style="font-size: 13px; line-height: 1.5; color: var(--text2); margin-bottom: 14px;">
+          Esta acción reemplazará **TAL CUAL** toda la información actual de las pestañas de Google Sheets (Solicitudes, Auditoría, Documentos, etc.) y de la base de datos MySQL con los datos de este respaldo.
+        </p>
+        <p style="font-size: 12.5px; line-height: 1.5; color: var(--gold); font-weight: 600;">
+          ⚠️ NOTA: Antes de restaurar, el sistema generará automáticamente una copia de seguridad preventiva del estado actual por si necesita revertir esta acción.
+        </p>
+        <div style="display:flex; gap:10px; margin-top:20px;">
+          <button type="button" class="btn btn-primary" onclick="confirmarAdvertenciaBackup()" style="background:#e74c3c; border-color:#e74c3c; flex:1;">Entendido y Continuar</button>
+          <button type="button" class="btn btn-outline" onclick="cerrarBackupAdvertenciaModal()" style="flex:1;">Cancelar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. Confirmación Crítica por Escritura (Segundo Modal) -->
+  <div id="modalBackupConfirmar" class="val-modal-overlay hidden" role="dialog" aria-modal="true" style="z-index: 1510;">
+    <div class="val-modal-box" style="max-width: 440px;">
+      <div class="val-modal-head" style="background: linear-gradient(135deg, var(--navy2), var(--navy));">
+        <div class="val-modal-head-ico">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          </svg>
+        </div>
+        <h3 class="val-modal-title">Confirmar restauración</h3>
+      </div>
+      <div class="val-modal-body" style="padding: 20px; text-align: left;">
+        <p style="font-size: 13px; line-height: 1.4; color: var(--text2); margin-bottom: 14px;" id="textConfirmarBackupDesc">
+          Esta acción es irreversible. Por seguridad, se ha enviado un código de validación de 6 dígitos a su correo electrónico. Ingrese el código a continuación:
+        </p>
+        <div style="position: relative; margin-bottom: 16px;">
+          <input type="text" id="inputConfirmarBackupText" oninput="validarEscrituraBackupConfirm(this)" placeholder="Código de 6 dígitos" maxlength="6"
+                 style="width: 100%; padding: 10px; border: 1px solid var(--border2); border-radius: var(--radius-sm); background: var(--surface2); color: var(--text); font-family: inherit; font-size: 16px; font-weight: 700; text-align: center; letter-spacing: 4px; box-sizing: border-box; outline: none;">
+        </div>
+        <div style="text-align: center; margin-bottom: 16px;">
+          <button type="button" class="btn btn-outline" id="btnReenviarCodigoBackup" onclick="reenviarCodigoBackup()" style="font-size: 11px; padding: 4px 8px; border-color: var(--border); color: var(--text2);">Reenviar código</button>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <button type="button" class="btn btn-primary" id="btnRestaurarBackupDefinitivo" onclick="iniciarRestauracionDefinitiva()" disabled style="flex:1;">Restaurar ahora</button>
+          <button type="button" class="btn btn-outline" onclick="cerrarBackupConfirmarModal()" style="flex:1;">Cancelar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Pantalla de Bloqueo y Progreso (Tercer Modal) -->
+  <div id="modalBackupRestaurando" class="proc-loading-overlay hidden" role="dialog" aria-modal="true" style="z-index: 2000;">
+    <div class="proc-loading-box" style="max-width: 420px; padding: 24px; text-align: center;">
+      <div class="proc-loading-spinner-wrap" id="backupRestaurandoSpinner">
+        <div class="proc-step-spinner" style="width: 48px; height: 48px; border-width: 4px; border-top-color: var(--gold);"></div>
+      </div>
+      <h3 style="font-size: 18px; font-weight: 700; margin: 16px 0 8px 0; color: var(--text);">Restaurando Sistema</h3>
+      <p style="font-size: 13px; color: var(--text2); margin-bottom: 20px;">Por favor, no cierres esta ventana. El servidor está restaurando los datos en las hojas de cálculo y la base de datos.</p>
+      
+      <div class="proc-loading-steps" style="display: flex; flex-direction: column; gap: 10px; text-align: left; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px;">
+        <div class="proc-step" id="stepBackupPre" style="display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--muted); font-weight: 500;">
+          <div class="proc-step-bullet" id="bulletBackupPre" style="width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--border2); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; flex-shrink: 0; background: var(--surface); color: var(--text2);">1</div>
+          <span id="labelBackupPre">1. Creando copia de seguridad de prevención...</span>
+        </div>
+        <div class="proc-step" id="stepBackupSheets" style="display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--muted); font-weight: 500;">
+          <div class="proc-step-bullet" id="bulletBackupSheets" style="width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--border2); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; flex-shrink: 0; background: var(--surface); color: var(--text2);">2</div>
+          <span id="labelBackupSheets">2. Restaurando hojas de cálculo Google...</span>
+        </div>
+        <div class="proc-step" id="stepBackupDB" style="display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--muted); font-weight: 500;">
+          <div class="proc-step-bullet" id="bulletBackupDB" style="width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--border2); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; flex-shrink: 0; background: var(--surface); color: var(--text2);">3</div>
+          <span id="labelBackupDB">3. Restaurando tablas en MySQL...</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════
+       TOASTS / Notificaciones flotantes
+       ═══════════════════════════════════════════════════ -->
+  <div id="toastContainer" aria-live="polite"></div>
+
+
+  <?!= include('Scripts'); ?>
+</body>
+</html>

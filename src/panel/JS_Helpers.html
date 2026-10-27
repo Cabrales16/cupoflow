@@ -1,0 +1,876 @@
+<script>
+/* ─────────────────────────────────────────────────────────────────────────
+   JS_Helpers.html — Utilidades DOM, formato y render compartidas
+   CupoFlow · Panel de Control y Administración - Solicitud de Créditos
+   ───────────────────────────────────────────────────────────────────────── */
+
+// ─── Manipulación DOM ────────────────────────────────────────────────────────
+
+function setText(id, val)  { const el = document.getElementById(id); if (el) el.textContent = val ?? '—'; }
+function setHtml(id, val)  { const el = document.getElementById(id); if (el) el.innerHTML   = val ?? ''; }
+function show(id)          { const el = document.getElementById(id); if (el) el.style.display = ''; }
+function hide(id)          { const el = document.getElementById(id); if (el) el.style.display = 'none'; }
+function addCls(id, cls)   { const el = document.getElementById(id); if (el) el.classList.add(cls); }
+function rmCls(id, cls)    { const el = document.getElementById(id); if (el) el.classList.remove(cls); }
+
+function showLoading() {
+  if (typeof STATE !== 'undefined') {
+    STATE.loadingCount = (STATE.loadingCount || 0) + 1;
+  }
+  const el = document.getElementById('topProgressBar');
+  if (el) el.classList.remove('hidden');
+}
+
+function hideLoading() {
+  if (typeof STATE !== 'undefined') {
+    STATE.loadingCount = Math.max(0, (STATE.loadingCount || 0) - 1);
+    if (STATE.loadingCount > 0) return; // Aún hay otras peticiones cargando
+  }
+  const el = document.getElementById('topProgressBar');
+  if (el) el.classList.add('hidden');
+}
+
+// ─── Formato numérico y de fechas ────────────────────────────────────────────
+
+/**
+ * Formatea un número como moneda colombiana (o en la moneda indicada).
+ * @param  {number} n        - Valor numérico.
+ * @param  {string} [moneda] - Código ISO de moneda (default: 'COP').
+ * @return {string}
+ */
+function formatMoney(n, moneda) {
+  moneda = moneda || 'COP';
+  return new Intl.NumberFormat('es-CO', {
+    style                : 'currency',
+    currency             : moneda,
+    maximumFractionDigits: 0
+  }).format(Number(n) || 0);
+}
+
+/**
+ * Formatea un string ISO (o Date) a fecha legible en español colombiano.
+ * @param  {string} isoStr - Fecha en formato ISO o 'yyyy-MM-dd'.
+ * @return {string}         - p. ej.: "21 may. 2026"
+ */
+function formatFecha(isoStr) {
+  if (!isoStr) return '—';
+  const d = new Date(isoStr);
+  if (isNaN(d.getTime())) return String(isoStr).slice(0, 10) || '—';
+  return d.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+/**
+ * Formatea bytes a una unidad legible (B, KB, MB, GB).
+ * @param  {number} bytes
+ * @return {string}
+ */
+function formatBytes(bytes) {
+  if (!bytes || bytes === 0) return '0 B';
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i     = Math.floor(Math.log(bytes) / Math.log(1024));
+  return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + sizes[i];
+}
+
+// ─── Escape HTML ──────────────────────────────────────────────────────────────
+
+/**
+ * Escapa caracteres especiales HTML para prevenir XSS.
+ * @param  {*} str - Valor a escapar.
+ * @return {string}
+ */
+function escHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Retorna un tema/nombre legible si la línea se refiere a un documento reconocible.
+ * @param  {string} lineText
+ * @return {string|null}
+ */
+function getDocTopicFromText(lineText) {
+  if (!lineText) return null;
+  const t = lineText.toLowerCase();
+  if (t.includes('cámara de comercio') || t.includes('camara de comercio') || t.includes('certificado de existencia')) return 'Cámara de Comercio';
+  if (t.includes('antigüedad de la empresa') || t.includes('antiguedad de la empresa') || t.includes('facultades del representante')) return 'Cámara de Comercio';
+  if (t.includes('rut')) return 'RUT';
+  if (t.includes('estados financieros') || t.includes('capacidad de pago') || t.includes('flujo de caja')) return 'Estados Financieros';
+  if (t.includes('declaración de renta') || t.includes('declaracion de renta') || t.includes('renta')) return 'Declaración de Renta';
+  if (t.includes('datacrédito') || t.includes('datacredito') || t.includes('aptitud crediticia')) return 'Datacrédito';
+  if (t.includes('inspektor')) return 'Inspektor';
+  if (t.includes('cédula') || t.includes('cedula') || t.includes('cruce de identidad')) return 'Cédula de Ciudadanía';
+  if (t.includes('formato de solicitud') || t.includes('ox-f-gfi') || t.includes('correo de recepción') || t.includes('centros con "x"') || t.includes('consistencia empresarial')) return 'Formato de Solicitud (Formulario Maestro)';
+  return null;
+}
+
+/**
+ * Busca en el array de documentos del expediente el archivo correspondiente a la línea de validación.
+ * @param  {string} lineText
+ * @param  {Array}  docs
+ * @return {Object|null}
+ */
+function getDocForValidationItem(lineText, docs) {
+  if (!docs || !docs.length || !lineText) return null;
+  const t = lineText.toLowerCase();
+
+  // 1. Cámara de Comercio / Certificado de Existencia / Antigüedad / Facultades
+  if (t.includes('cámara de comercio') || t.includes('camara de comercio') || 
+      t.includes('certificado de existencia') || t.includes('facultades del representante') ||
+      t.includes('antigüedad de la empresa') || t.includes('antiguedad de la empresa')) {
+    return docs.find(d => d.tipo_documento === 'CERT_EXISTENCIA') ||
+           docs.find(d => {
+             const name = (d.nombre_archivo || '').toLowerCase();
+             return name.includes('camara') || name.includes('existencia') || name.includes('cert');
+           }) || null;
+  }
+
+  // 2. RUT
+  if (t.includes('rut')) {
+    return docs.find(d => d.tipo_documento === 'RUT') ||
+           docs.find(d => (d.nombre_archivo || '').toLowerCase().includes('rut')) || null;
+  }
+
+  // 3. Estados Financieros / Capacidad de Pago / Flujo de Caja
+  if (t.includes('estados financieros') || t.includes('capacidad de pago') || t.includes('flujo de caja')) {
+    return docs.find(d => d.tipo_documento === 'ESTADOS_FIN') ||
+           docs.find(d => {
+             const name = (d.nombre_archivo || '').toLowerCase();
+             return name.includes('estados_fin') || name.includes('financier') || name.includes('balance');
+           }) || null;
+  }
+
+  // 4. Declaración de Renta
+  if (t.includes('declaración de renta') || t.includes('declaracion de renta') || t.includes('renta')) {
+    return docs.find(d => d.tipo_documento === 'DECL_RENTA') ||
+           docs.find(d => (d.nombre_archivo || '').toLowerCase().includes('renta')) || null;
+  }
+
+  // 5. Cédula / Cruce de Identidad
+  if (t.includes('cédula') || t.includes('cedula') || t.includes('cruce de identidad')) {
+    return docs.find(d => d.tipo_documento === 'CEDULA') ||
+           docs.find(d => {
+             const name = (d.nombre_archivo || '').toLowerCase();
+             return name.includes('cedula') || name.includes('cc_') || name.includes('cc ');
+           }) ||
+           docs.find(d => d.tipo_documento === 'CERT_EXISTENCIA') || null;
+  }
+
+  // 6. Datacrédito / Score / Aptitud
+  if (t.includes('datacrédito') || t.includes('datacredito') || t.includes('aptitud crediticia')) {
+    return docs.find(d => d.tipo_documento === 'DATACREDITO') ||
+           docs.find(d => (d.nombre_archivo || '').toLowerCase().includes('datacredito')) || null;
+  }
+
+  // 7. Inspektor
+  if (t.includes('inspektor')) {
+    return docs.find(d => d.tipo_documento === 'INSPEKTOR') ||
+           docs.find(d => (d.nombre_archivo || '').toLowerCase().includes('inspektor')) || null;
+  }
+
+  // 8. Formato de Solicitud / Correo / Centros / Consistencia
+  if (t.includes('formato de solicitud') || t.includes('ox-f-gfi') || t.includes('correo de recepción') || t.includes('centros con "x"') || t.includes('consistencia empresarial')) {
+    return docs.find(d => d.tipo_documento === 'FORMATO_SOLICITUD') ||
+           docs.find(d => (d.nombre_archivo || '').toLowerCase().includes('ox-f-gfi')) || null;
+  }
+
+  return null;
+}
+
+/**
+ * Notifica al usuario cuando presiona 'Ver' en un documento no adjunto.
+ * @param {string} nombreDoc
+ */
+function notificarDocNoAdjunto(nombreDoc) {
+  showToast('El documento (' + nombreDoc + ') no ha sido adjuntado en este expediente.', 'info');
+  switchTab('documentos');
+}
+
+/**
+ * Helper para escapar HTML y procesar negritas/cursivas de markdown.
+ */
+function parseMarkdownText(txt) {
+  if (!txt) return '';
+  let html = escHtml(txt);
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong style="color: var(--text); font-weight: 700;">$1</strong>');
+  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+  html = html.replace(/_(.*?)_/g, '<em>$1</em>');
+  html = html.replace(/`([^`]+)`/g, '<code style="font-family: monospace; padding: 2px 4px; background: var(--surface2); border-radius: 4px;">$1</code>');
+  return html;
+}
+
+/**
+ * Convierte Markdown básico a HTML para renderizar el reporte de IA de manera agradable,
+ * agregando botones "Ver" interactivos en las filas de validación.
+ * @param  {string} md - Texto en formato Markdown.
+ * @return {string}     - HTML formateado.
+ */
+function formatMarkdownToHtml(md) {
+  if (!md) return '—';
+  
+  const docs = STATE.documentosExpediente || [];
+  const lines = md.split(/\r?\n/);
+  let htmlResult = '';
+  
+  let currentSection = ''; // 'general', 'validaciones', 'other'
+  let generalFields = [];
+  let validationFields = [];
+  let activeValItem = null;
+  let currentTableLines = [];
+
+  function renderMarkdownTableHtml(tableLines) {
+    if (!tableLines || tableLines.length === 0) return '';
+    
+    const cleanRows = [];
+    tableLines.forEach(line => {
+      let rawCols = line.split('|').map(c => c.trim());
+      if (rawCols.length > 0 && rawCols[0] === '') rawCols.shift();
+      if (rawCols.length > 0 && rawCols[rawCols.length - 1] === '') rawCols.pop();
+      
+      const isSeparator = rawCols.length > 0 && rawCols.every(c => /^:?-+:?$/.test(c));
+      if (!isSeparator && rawCols.length > 0) {
+        cleanRows.push(rawCols);
+      }
+    });
+    
+    if (cleanRows.length === 0) return '';
+    
+    const headerCols = cleanRows[0];
+    const dataRows = cleanRows.slice(1);
+    
+    let tbl = '<div class="table-responsive" style="margin-bottom: 18px; margin-top: 10px;">' +
+              '<table class="data-table" style="width: 100%; border: 1px solid var(--border); border-radius: var(--radius-sm); border-collapse: separate; border-spacing: 0; overflow: hidden; box-shadow: var(--shadow-sm);">' +
+              '<thead><tr>';
+              
+    headerCols.forEach(col => {
+      tbl += '<th style="padding: 10px 14px; font-size: 11px; background: var(--surface2); border-bottom: 1px solid var(--border); font-weight: 700; text-transform: uppercase; color: var(--muted); letter-spacing: .06em;">' + escHtml(col) + '</th>';
+    });
+    
+    tbl += '</tr></thead><tbody>';
+    
+    dataRows.forEach(row => {
+      tbl += '<tr>';
+      row.forEach((col, idx) => {
+        let isFirstCol = idx === 0;
+        let style = isFirstCol 
+          ? 'padding: 10px 14px; font-weight: 700; color: var(--text); font-size: 12.5px; border-bottom: 1px solid var(--border); background: var(--surface);'
+          : 'padding: 10px 14px; color: var(--text2); font-size: 12.5px; border-bottom: 1px solid var(--border); background: var(--surface);';
+        tbl += '<td style="' + style + '">' + escHtml(col) + '</td>';
+      });
+      tbl += '</tr>';
+    });
+    
+    tbl += '</tbody></table></div>';
+    return tbl;
+  }
+
+  function flushTable() {
+    if (currentTableLines.length > 0) {
+      htmlResult += renderMarkdownTableHtml(currentTableLines);
+      currentTableLines = [];
+    }
+  }
+  
+  function flushSection() {
+    flushTable();
+    if (currentSection === 'general') {
+      if (generalFields.length > 0) {
+        let tbl = '<div class="table-responsive" style="margin-bottom: 18px; margin-top: 10px;">' +
+                  '<table class="data-table" style="width: 100%; border: 1px solid var(--border); border-radius: var(--radius-sm); border-collapse: separate; border-spacing: 0; overflow: hidden; box-shadow: var(--shadow-sm);">' +
+                  '<thead>' +
+                    '<tr>' +
+                      '<th style="width: 35%; padding: 10px 14px; font-size: 11px; background: var(--surface2); border-bottom: 1px solid var(--border); font-weight: 700; text-transform: uppercase; color: var(--muted); letter-spacing: .06em;">Concepto / Campo</th>' +
+                      '<th style="padding: 10px 14px; font-size: 11px; background: var(--surface2); border-bottom: 1px solid var(--border); font-weight: 700; text-transform: uppercase; color: var(--muted); letter-spacing: .06em;">Valor Extraído</th>' +
+                    '</tr>' +
+                  '</thead>' +
+                  '<tbody>';
+        generalFields.forEach(f => {
+          if (f.name) {
+            tbl += '<tr>' +
+                     '<td style="padding: 10px 14px; font-weight: 700; color: var(--text); font-size: 12.5px; border-bottom: 1px solid var(--border); background: var(--surface);">' + parseMarkdownText(f.name) + '</td>' +
+                     '<td style="padding: 10px 14px; color: var(--text2); font-size: 12.5px; border-bottom: 1px solid var(--border); background: var(--surface);">' + parseMarkdownText(f.value) + '</td>' +
+                   '</tr>';
+          } else {
+            tbl += '<tr>' +
+                     '<td colspan="2" style="padding: 10px 14px; color: var(--text2); font-size: 12.5px; border-bottom: 1px solid var(--border); background: var(--surface);">' + parseMarkdownText(f.value) + '</td>' +
+                   '</tr>';
+          }
+        });
+        tbl += '</tbody></table></div>';
+        htmlResult += tbl;
+        generalFields = [];
+      }
+    } else if (currentSection === 'validaciones') {
+      if (validationFields.length > 0) {
+        // Sort validation items: ❌ and ⚠️ first, then ✅, then items without emojis
+        validationFields.sort((a, b) => {
+          function getPriority(item) {
+            if (!item.emoji) return 9;
+            if (item.emoji.includes('❌')) return 0;
+            if (item.emoji.includes('⚠️') || item.emoji.includes('⚠')) return 1;
+            if (item.emoji.includes('✅')) return 2;
+            return 8;
+          }
+          return getPriority(a) - getPriority(b);
+        });
+        
+        let tbl = '<div class="table-responsive" style="margin-bottom: 18px; margin-top: 10px;">' +
+                  '<table class="data-table ia-val-table" style="width: 100%; border: 1px solid var(--border); border-radius: var(--radius-sm); border-collapse: separate; border-spacing: 0; overflow: hidden; box-shadow: var(--shadow-sm);">' +
+                  '<thead>' +
+                    '<tr>' +
+                      '<th style="width: 75px; text-align: center; padding: 10px 14px; font-size: 11px; background: var(--surface2); border-bottom: 1px solid var(--border); font-weight: 700; text-transform: uppercase; color: var(--muted); letter-spacing: .06em;">Estado</th>' +
+                      '<th style="width: 200px; padding: 10px 14px; font-size: 11px; background: var(--surface2); border-bottom: 1px solid var(--border); font-weight: 700; text-transform: uppercase; color: var(--muted); letter-spacing: .06em;">Concepto</th>' +
+                      '<th style="padding: 10px 14px; font-size: 11px; background: var(--surface2); border-bottom: 1px solid var(--border); font-weight: 700; text-transform: uppercase; color: var(--muted); letter-spacing: .06em;">Detalle / Hallazgo</th>' +
+                      '<th style="width: 90px; text-align: center; padding: 10px 14px; font-size: 11px; background: var(--surface2); border-bottom: 1px solid var(--border); font-weight: 700; text-transform: uppercase; color: var(--muted); letter-spacing: .06em;">Archivo</th>' +
+                    '</tr>' +
+                  '</thead>' +
+                  '<tbody>';
+                  
+        validationFields.forEach(f => {
+          if (f.emoji) {
+            let statusClass = 'val-success';
+            let cellBorderStyle = 'border-left: 3.5px solid var(--success);';
+            let rowBg = 'background: rgba(16, 185, 129, 0.015);';
+            let displayEmoji = f.emoji;
+            
+            if (f.emoji.includes('❌')) {
+              statusClass = 'val-danger';
+              cellBorderStyle = 'border-left: 3.5px solid var(--danger);';
+              rowBg = 'background: rgba(239, 68, 68, 0.035);';
+              displayEmoji = '❌';
+            } else if (f.emoji.includes('⚠️') || f.emoji.includes('⚠')) {
+              statusClass = 'val-warning';
+              cellBorderStyle = 'border-left: 3.5px solid var(--gold);';
+              rowBg = 'background: rgba(255, 101, 1, 0.035);';
+              displayEmoji = '⚠️';
+            }
+            
+            const matchedDoc = getDocForValidationItem(f.fullText, docs);
+            let actionBtnHtml = '';
+            
+            if (matchedDoc && matchedDoc.drive_file_id) {
+              const driveUrl = 'https://drive.google.com/file/d/' + escHtml(matchedDoc.drive_file_id) + '/view';
+              const docLabel = escHtml(matchedDoc.nombre_archivo || 'Documento');
+              actionBtnHtml = 
+                '<a href="' + driveUrl + '" target="_blank" class="btn-ver-doc" title="Ver ' + docLabel + ' en Google Drive" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">' +
+                  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 11px; height: 11px;">' +
+                    '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>' +
+                    '<circle cx="12" cy="12" r="3"/>' +
+                  '</svg>' +
+                  'Ver' +
+                '</a>';
+            } else {
+              const docTypeTopic = getDocTopicFromText(f.fullText);
+              if (docTypeTopic) {
+                actionBtnHtml = 
+                  '<button type="button" class="btn-ver-doc btn-ver-missing" onclick="notificarDocNoAdjunto(\'' + escHtml(docTypeTopic) + '\')" title="Documento no adjunto en el expediente" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">' +
+                    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 11px; height: 11px;">' +
+                      '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>' +
+                      '<circle cx="12" cy="12" r="3"/>' +
+                    '</svg>' +
+                    'Ver' +
+                  '</button>';
+              }
+            }
+            
+            // Format lists/sub-lines inside details if there are any
+            let detailParts = (f.detail || 'Sin observaciones adicionales').split('<br>');
+            let detailHtml = detailParts.map(part => {
+              let p = part.trim();
+              if (!p) return '';
+              if (p.startsWith('-') || p.startsWith('•') || p.startsWith('*')) {
+                let content = p.substring(1).trim();
+                return '<div style="margin-left: 12px; display: flex; align-items: flex-start; gap: 4px; margin-top: 1px; color: var(--text2); font-size: 12.5px; line-height: 1.3;"><span>•</span><span>' + parseMarkdownText(content) + '</span></div>';
+              }
+              return '<div style="color: var(--text2); font-size: 12.5px; line-height: 1.3; margin-top: 1px;">' + parseMarkdownText(p) + '</div>';
+            }).filter(Boolean).join('');
+            
+            tbl += '<tr style="' + rowBg + '">' +
+                     '<td style="text-align: center; font-size: 14px; padding: 10px 8px; border-bottom: 1px solid var(--border); ' + cellBorderStyle + '">' + displayEmoji + '</td>' +
+                     '<td style="padding: 10px 14px; font-weight: 700; color: var(--text); font-size: 12.5px; vertical-align: middle; border-bottom: 1px solid var(--border);">' + parseMarkdownText(f.concept) + '</td>' +
+                     '<td style="padding: 10px 14px; color: var(--text2); font-size: 12.5px; line-height: 1.5; vertical-align: top; border-bottom: 1px solid var(--border);">' + detailHtml + '</td>' +
+                     '<td style="text-align: center; padding: 10px 8px; vertical-align: middle; border-bottom: 1px solid var(--border);">' + actionBtnHtml + '</td>' +
+                   '</tr>';
+          } else {
+            tbl += '<tr>' +
+                     '<td colspan="4" style="padding: 10px 14px; color: var(--text2); font-size: 12.5px; border-bottom: 1px solid var(--border); background: var(--surface);">' + parseMarkdownText(f.concept) + '</td>' +
+                   '</tr>';
+          }
+        });
+        
+        tbl += '</tbody></table></div>';
+        htmlResult += tbl;
+        validationFields = [];
+        activeValItem = null;
+      }
+    }
+  }
+  
+  const hasEstadosFin = docs.some(d => {
+    const tipo = String(d.tipo_documento || '').toUpperCase();
+    const nombre = String(d.nombre_archivo || '').toUpperCase();
+    return tipo === 'ESTADOS_FIN' || nombre.includes('ESTADOS_FIN') || nombre.includes('ESTADOS FINANCIEROS') || nombre.includes('BALANCE');
+  });
+
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
+    let trimmed = line.trim();
+    
+    // Check if markdown table row
+    if (trimmed.startsWith('|')) {
+      if (currentSection === 'eeff' && !hasEstadosFin) {
+        // No acumular tabla de EEFF si no hay adjuntos
+        continue;
+      }
+      currentTableLines.push(trimmed);
+      continue;
+    } else {
+      flushTable();
+    }
+    
+    // Detect section headers
+    if (trimmed.startsWith('# ') || trimmed.startsWith('## ')) {
+      // Flush previous section
+      flushSection();
+      
+      let headerText = trimmed.replace(/^#+\s+/, '');
+      let level = trimmed.startsWith('##') ? 3 : 2;
+      
+      if (trimmed.toLowerCase().includes('datos generales')) {
+        currentSection = 'general';
+        htmlResult += '<h' + level + ' style="margin-top: 15px; margin-bottom: 8px;">' + escHtml(headerText) + '</h' + level + '>';
+      } else if (trimmed.toLowerCase().includes('estado de las validaciones') || trimmed.toLowerCase().includes('validación') || trimmed.toLowerCase().includes('valida')) {
+        currentSection = 'validaciones';
+        htmlResult += '<h' + level + ' style="margin-top: 20px; margin-bottom: 8px;">' + escHtml(headerText) + '</h' + level + '>';
+      } else if (trimmed.toLowerCase().includes('estados financieros')) {
+        currentSection = 'eeff';
+        htmlResult += '<h' + level + ' style="margin-top: 20px; margin-bottom: 8px;">' + escHtml(headerText) + '</h' + level + '>';
+        if (!hasEstadosFin) {
+          htmlResult += '<div style="padding: 12px 16px; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--muted); font-size: 13px; margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">' +
+                          '<span>⚠️</span>' +
+                          '<span>No se adjuntaron Estados Financieros en el expediente comercial. No fue posible generar el diagnóstico ni la tabla de indicadores clave.</span>' +
+                        '</div>';
+        }
+      } else {
+        currentSection = 'other';
+        htmlResult += '<h' + level + ' style="margin-top: 20px; margin-bottom: 8px;">' + escHtml(headerText) + '</h' + level + '>';
+      }
+      continue;
+    }
+
+    if (currentSection === 'eeff' && !hasEstadosFin) {
+      // Omitir texto de resumen e indicadores si no hay documento de EEFF
+      continue;
+    }
+    
+    if (currentSection === 'general') {
+      if (trimmed.includes(':')) {
+        let colonIndex = trimmed.indexOf(':');
+        let fieldName = trimmed.substring(0, colonIndex).trim();
+        let fieldValue = trimmed.substring(colonIndex + 1).trim();
+        generalFields.push({ name: fieldName, value: fieldValue });
+      } else if (trimmed !== '') {
+        generalFields.push({ name: '', value: trimmed });
+      }
+    } else if (currentSection === 'validaciones') {
+      const valMatch = trimmed.match(/^\s*([•-]?\s*)([❌⚠️⚠✅])\s*(.*?)$/u);
+      if (valMatch) {
+        let emoji = valMatch[2];
+        let restText = valMatch[3].trim();
+        
+        let concept = '';
+        let detail = '';
+        if (restText.includes(':')) {
+          let colonIdx = restText.indexOf(':');
+          concept = restText.substring(0, colonIdx).trim();
+          detail = restText.substring(colonIdx + 1).trim();
+        } else {
+          concept = restText;
+          detail = '';
+        }
+        
+        activeValItem = { emoji: emoji, concept: concept, detail: detail, fullText: restText };
+        validationFields.push(activeValItem);
+      } else if (trimmed !== '') {
+        if (activeValItem && (trimmed.startsWith('-') || trimmed.startsWith('•') || trimmed.startsWith('*') || activeValItem.concept.toLowerCase().includes('centros'))) {
+          activeValItem.detail = (activeValItem.detail ? activeValItem.detail + '<br>' : '') + trimmed;
+          activeValItem.fullText += ' ' + trimmed;
+        } else {
+          activeValItem = { emoji: '', concept: trimmed, detail: '', fullText: trimmed };
+          validationFields.push(activeValItem);
+        }
+      }
+    } else {
+      if (trimmed !== '') {
+        let lineHtml = parseMarkdownText(trimmed);
+        lineHtml = lineHtml.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank">$1</a>');
+        
+        htmlResult += '<div style="margin-bottom: 6px; font-size: 13px; line-height: 1.5; color: var(--text2);">' + lineHtml + '</div>';
+      } else {
+        htmlResult += '<div style="height: 8px;"></div>';
+      }
+    }
+  }
+  
+  // Flush the last section and table
+  flushSection();
+  
+  return htmlResult;
+}
+
+/**
+ * Trunca un string a `max` caracteres añadiendo '…' si se excede.
+ * @param  {string} str
+ * @param  {number} max
+ * @return {string}
+ */
+function truncate(str, max) {
+  if (!str) return '—';
+  return str.length > max ? str.slice(0, max) + '…' : str;
+}
+
+// ─── Badges y Pills HTML ──────────────────────────────────────────────────────
+
+/**
+ * Genera el HTML del badge de estado/acción de una solicitud.
+ * @param  {string} accion - Valor de la columna 'accion' de la solicitud.
+ * @return {string}         - HTML del badge.
+ */
+function getBadgeHtml(accion) {
+  accion = (accion || '').trim().toUpperCase();
+  if (!accion || accion === 'PENDIENTE' || accion === 'PENDIENTE_REVISION' || accion.includes('PENDIENTE')) {
+    return '<span class="badge badge-pending"><span class="badge-dot"></span>Pendiente</span>';
+  }
+  if (accion === 'APROBADA' || accion === 'ACTIVA' || accion === 'ACTIVO') {
+    return '<span class="badge badge-approved"><span class="badge-dot"></span>Aprobada</span>';
+  }
+  if (accion.startsWith('RECHAZADA')) {
+    return '<span class="badge badge-rejected"><span class="badge-dot"></span>Rechazada</span>';
+  }
+  if (accion === 'EN_REVISION') {
+    return '<span class="badge badge-review"><span class="badge-dot"></span>En revisión</span>';
+  }
+  if (accion === 'VENCIDA' || accion === 'VENCIDO') {
+    return '<span class="badge badge-rejected"><span class="badge-dot"></span>Vencido</span>';
+  }
+  if (accion === 'POR VENCER' || accion === 'POR_VENCER') {
+    return '<span class="badge badge-pending"><span class="badge-dot"></span>Por Vencer</span>';
+  }
+  if (accion === 'BLOQUEADO CORPORATIVO' || accion === 'BLOQUEADO_CORPORATIVO') {
+    return '<span class="badge badge-review"><span class="badge-dot"></span>Bloqueado Corp.</span>';
+  }
+  if (accion === 'BLOQUEADO GERENCIA' || accion === 'BLOQUEADO_GERENCIA') {
+    return '<span class="badge badge-pending"><span class="badge-dot"></span>Bloqueado Gte.</span>';
+  }
+  return '<span class="badge badge-synced">' + escHtml(accion) + '</span>';
+}
+
+/**
+ * Genera el HTML de la píldora de tipo de solicitud.
+ * @param  {string} tipo - 'NUEVA' | 'AMPLIACION' | 'RENOVACION' | 'HOMOLOGACION'
+ * @return {string}       - HTML del tipo-pill.
+ */
+function getTipoPill(tipo) {
+  const labels = {
+    NUEVA        : 'Nueva',
+    AMPLIACION   : 'Ampliación',
+    RENOVACION   : 'Renovación',
+    HOMOLOGACION : 'Homologación'
+  };
+  return '<span class="tipo-pill">' + escHtml(labels[tipo] || tipo || '—') + '</span>';
+}
+
+/**
+ * Genera el HTML de la píldora para indicar si pertenece a filiales de CupoFlow.
+ * @param  {string} esFilial - 'SI' | 'NO'
+ * @return {string}
+ */
+function getFilialPill(esFilial) {
+  if (esFilial === 'SI' || esFilial === 'true' || esFilial === true) {
+    return '<span class="tipo-pill" style="background-color:var(--gold-light) !important; color:var(--gold) !important; font-weight:600; border: 1px solid rgba(202, 113, 31,0.3); padding: 2px 8px; border-radius: 4px;">Sí</span>';
+  }
+  return '<span class="tipo-pill" style="background:var(--surface3) !important; color:var(--text2) !important; padding: 2px 8px; border-radius: 4px;">No</span>';
+}
+
+const CENTROS_RAZON_MAP = {
+  'CDNORTE': 'CENTRO DEMO NORTE S.A.S',
+  'CDCENTRO': 'DISTRIBUIDORA DEMO CENTRO S.A.S.',
+  'CDSUR': 'CENTRO DEMO SUR S.A.S',
+  'CDCOSTA': 'INVERSIONES DEMO COSTA S.A.S',
+  'CDANDES': 'CENTRO DEMO ANDES S.A.S',
+  'CDVALLE': 'DESARROLLOS DEMO VALLE S.A.S',
+  'CDISLA': 'PROYECTOS DEMO ISLA S.A.S',
+  'CDBOSQUE': 'CENTRO DEMO BOSQUE S.A.S'
+};
+
+function getCentroRazon(codigo) {
+  if (!codigo) return '';
+  const c = String(codigo).trim().toUpperCase();
+  if (typeof CENTROS_CREDITOS_STATE !== 'undefined' && Array.isArray(CENTROS_CREDITOS_STATE.centros)) {
+    const found = CENTROS_CREDITOS_STATE.centros.find(h => (Array.isArray(h) ? String(h[0] || '').toUpperCase() : String(h.codigo || '').toUpperCase()) === c);
+    if (found) {
+      const r = Array.isArray(found) ? (found[3] || found[1]) : (found.razon || found.nombre);
+      if (r) return r;
+    }
+  }
+  if (typeof window !== 'undefined' && Array.isArray(window._cachedCentrosFiltroSol)) {
+    const found = window._cachedCentrosFiltroSol.find(h => String(h.codigo || '').toUpperCase() === c);
+    if (found && (found.razon || found.nombre)) return found.razon || found.nombre;
+  }
+  return CENTROS_RAZON_MAP[c] || codigo;
+}
+
+/**
+ * Genera el listado de centros en forma de chips visuales estructurados mostrando la razón social.
+ *
+ * @param {string} centroCodesStr - Cadena separada por comas con los códigos.
+ * @param {number} [max=3] - Límite de chips visibles antes de agrupar.
+ * @return {string} - HTML de los chips.
+ */
+function getCentroChipsHtml(centroCodesStr, max) {
+  max = max || 3;
+  if (!centroCodesStr) return '—';
+  const codes = centroCodesStr.split(',').map(c => c.trim()).filter(Boolean);
+  if (!codes.length) return '—';
+  const visible = codes.slice(0, max);
+  const extra = codes.length - max;
+  let html = '<div style="display:flex; flex-wrap:wrap; gap:4px; max-width: 320px;">';
+  html += visible.map(c => {
+    const razon = getCentroRazon(c);
+    return '<span class="centro-chip" title="' + escHtml(razon) + '">' + escHtml(razon) + '</span>';
+  }).join('');
+  if (extra > 0) {
+    const extraTooltip = codes.slice(max).map(c => getCentroRazon(c)).join(', ');
+    html += '<span class="centro-chip centro-chip-more" title="' + escHtml(extraTooltip) + '">+' + extra + '</span>';
+  }
+  html += '</div>';
+  return html;
+}
+
+/**
+ * Genera una fila HTML para las tablas de solicitudes (Dashboard y Solicitudes).
+ * Reutilizada por JS_Dashboard y JS_Solicitudes.
+ *
+ * @param  {Object} r - Objeto de solicitud (mapRowToSolicitud_).
+ * @return {string}    - HTML de la fila <tr>.
+ */
+function buildTableRow(r) {
+  const comentTxt = escHtml(r.comentarios || '');
+  const comentCell = comentTxt
+    ? '<span style="font-size:12px;color:var(--text2);" title="' + comentTxt + '">' +
+        (comentTxt.length > 60 ? comentTxt.slice(0, 60) + '…' : comentTxt) +
+      '</span>'
+    : '<span class="td-muted">—</span>';
+  return '<tr onclick="abrirExpediente(\'' + escHtml(r.uuid) + '\')" style="cursor: pointer;">' +
+    '<td><span class="td-main td-mono" style="max-width: 140px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle;" title="' + escHtml(r.codigo_solicitud) + '">' + escHtml(r.codigo_solicitud) + '</span></td>' +
+    '<td>' +
+      '<div class="td-main td-truncate" style="font-size:13px;" title="' + escHtml(r.razon_social) + '">' + escHtml(r.razon_social) + '</div>' +
+      '<div class="td-mono td-muted" style="font-size:11px;">' + escHtml(r.identificacion) + '</div>' +
+    '</td>' +
+    '<td>' + getTipoPill(r.tipo_solicitud) + '</td>' +
+    '<td>' + getFilialPill(r.es_filial) + '</td>' +
+    '<td class="td-mono">' + escHtml((r.monto && parseFloat(r.monto) > 0) ? formatMoney(r.monto, r.moneda) : '—') + '</td>' +
+    '<td>' + getCentroChipsHtml(r.centro_codigo) + '</td>' +
+    '<td>' + getBadgeHtml(r.accion) + '</td>' +
+    '<td style="max-width:220px;overflow:hidden;">' + comentCell + '</td>' +
+    '<td class="td-muted" style="font-size:12px;">' + formatFecha(r.fecha_envio) + '</td>' +
+    '<td class="col-actions" style="text-align:center;">' +
+      '<button class="btn-row">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">' +
+          '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>' +
+          '<circle cx="12" cy="12" r="3"/>' +
+        '</svg>Ver' +
+      '</button>' +
+    '</td>' +
+    '</tr>';
+}
+
+/**
+ * Abre el modal de confirmación unificado (#modalConfirm) con los textos y acciones indicadas.
+ * Reemplaza el confirm() nativo de JavaScript.
+ *
+ * @param {Object} opt - Configuración del modal.
+ * @param {string} opt.titulo - Título del encabezado.
+ * @param {string} opt.mensaje - Mensaje (puede contener HTML).
+ * @param {string} [opt.btnAceptarText="Confirmar"] - Texto del botón de confirmar.
+ * @param {string} [opt.btnCancelarText="Cancelar"] - Texto del botón de cancelar.
+ * @param {string} [opt.colorTheme="navy"] - Tema de color ('navy' o 'danger').
+ * @param {boolean} [opt.isLg=false] - Si es true, el modal se hace ancho (val-modal-box-lg).
+ * @param {string} [opt.cuerpoAdicionalId] - ID del elemento adicional que se desea mostrar (p. ej. 'confirmAprobacionSeccion').
+ * @param {function} opt.onAceptar - Callback al presionar Confirmar.
+ * @param {function} [opt.onCancelar] - Callback al presionar Cancelar (u ocultar).
+ */
+function mostrarModalConfirmacion(opt) {
+  if (!opt) return;
+
+  const box = document.getElementById('modalConfirmBox');
+  if (box) {
+    if (opt.isLg) {
+      box.classList.add('val-modal-box-lg');
+    } else {
+      box.classList.remove('val-modal-box-lg');
+    }
+  }
+
+  const confirmHead = document.getElementById('confirmHead');
+  if (confirmHead) {
+    if (opt.colorTheme === 'danger') {
+      confirmHead.style.background = 'linear-gradient(135deg, #b84a00, #a04200)';
+    } else {
+      confirmHead.style.background = 'linear-gradient(135deg, var(--navy2), var(--navy))';
+    }
+  }
+
+  setText('confirmTitulo', opt.titulo || 'Confirmar acción');
+  setHtml('confirmMsg', opt.mensaje || '¿Estás seguro de realizar esta acción?');
+
+  const acceptBtn = document.getElementById('confirmBtnAccept');
+  if (acceptBtn) {
+    if (opt.colorTheme === 'danger') {
+      acceptBtn.style.background = 'var(--danger)';
+    } else {
+      acceptBtn.style.background = 'var(--navy2)';
+    }
+    acceptBtn.textContent = opt.btnAceptarText || 'Confirmar';
+    acceptBtn.disabled = false;
+    
+    acceptBtn.onclick = function() {
+      if (typeof opt.onAceptar === 'function') {
+        opt.onAceptar();
+      }
+    };
+  }
+
+  // Ocultar cuerpos adicionales por defecto
+  const aprobacionSeccion = document.getElementById('confirmAprobacionSeccion');
+  if (aprobacionSeccion) aprobacionSeccion.style.display = 'none';
+
+  if (opt.cuerpoAdicionalId) {
+    const extra = document.getElementById(opt.cuerpoAdicionalId);
+    if (extra) extra.style.display = 'block';
+  }
+
+  // Control de visibilidad del campo de comentario
+  const comentSeccion = document.getElementById('confirmComentarioSeccion');
+  if (comentSeccion) {
+    comentSeccion.style.display = opt.showComentario ? 'block' : 'none';
+  }
+  const comentTextarea = document.getElementById('confirmComentario');
+  if (comentTextarea) {
+    comentTextarea.value = '';
+  }
+
+  // Configurar botón cancelar
+  const cancelBtn = box ? box.querySelector('.btn-outline') : null;
+  if (cancelBtn) {
+    cancelBtn.onclick = function() {
+      cerrarModalConfirm();
+      if (typeof opt.onCancelar === 'function') {
+        opt.onCancelar();
+      }
+    };
+  }
+
+  rmCls('modalConfirm', 'hidden');
+}
+
+/**
+ * Formatea un número o string numérico con separador de miles por puntos.
+ */
+function formatNumberWithDots(val) {
+  if (val === null || val === undefined) return '';
+  let raw = String(val).replace(/\D/g, '');
+  if (!raw) return '';
+  return Number(raw).toLocaleString('es-CO');
+}
+
+/**
+ * Obtiene el valor numérico limpio de un string formateado con puntos.
+ */
+function cleanFormattedNumber(val) {
+  if (!val) return 0;
+  return parseFloat(String(val).replace(/\D/g, '')) || 0;
+}
+
+/**
+ * Agrega comportamiento de formato dinámico por puntos a un input de tipo texto.
+ * Permite ingresar solo números y formatea en tiempo real.
+ */
+function setupDynamicNumberFormat(inputEl, onInputCallback) {
+  if (!inputEl) return;
+  inputEl.addEventListener('input', function(e) {
+    const cursor = this.selectionStart;
+    const originalLen = this.value.length;
+    
+    // Obtener valor formateado
+    const formatted = formatNumberWithDots(this.value);
+    this.value = formatted;
+    
+    // Ajustar posición del cursor
+    const newLen = this.value.length;
+    const diff = newLen - originalLen;
+    this.setSelectionRange(cursor + diff, cursor + diff);
+    
+    if (onInputCallback) {
+      onInputCallback();
+    }
+  });
+}
+
+// ─── Paginación ───────────────────────────────────────────────────────────────
+
+/**
+ * Renderiza una barra de paginación en el contenedor indicado.
+ * @param {string} containerId  - ID del div donde se inserta la barra
+ * @param {number} total        - Total de registros
+ * @param {number} pagina       - Página actual (1-based)
+ * @param {number} porPagina    - Registros por página
+ * @param {string} fnPage       - Nombre de función JS para cambiar de página
+ * @param {string} fnSize       - Nombre de función JS para cambiar el tamaño
+ */
+function renderBarraPaginacion(containerId, total, pagina, porPagina, fnPage, fnSize) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  if (total === 0) { el.innerHTML = ''; return; }
+
+  const totalPags = Math.ceil(total / porPagina);
+  const desde     = (pagina - 1) * porPagina + 1;
+  const hasta     = Math.min(pagina * porPagina, total);
+  const WINDOW    = 2;
+  const start     = Math.max(1, pagina - WINDOW);
+  const end       = Math.min(totalPags, pagina + WINDOW);
+
+  let pagesHtml = '';
+  if (start > 1) {
+    pagesHtml += '<button class="pg-btn" onclick="' + fnPage + '(1)">1</button>';
+    if (start > 2) pagesHtml += '<span style="padding:0 3px;color:var(--muted)">…</span>';
+  }
+  for (var i = start; i <= end; i++) {
+    pagesHtml += '<button class="pg-btn' + (i === pagina ? ' active' : '') + '" onclick="' + fnPage + '(' + i + ')">' + i + '</button>';
+  }
+  if (end < totalPags) {
+    if (end < totalPags - 1) pagesHtml += '<span style="padding:0 3px;color:var(--muted)">…</span>';
+    pagesHtml += '<button class="pg-btn" onclick="' + fnPage + '(' + totalPags + ')">' + totalPags + '</button>';
+  }
+
+  var sizeBtns = [25, 50, 100].map(function(n) {
+    return '<button class="pg-btn' + (n === porPagina ? ' active' : '') + '" onclick="' + fnSize + '(' + n + ')">' + n + '</button>';
+  }).join('');
+
+  el.innerHTML =
+    '<div class="pag-bar">' +
+      '<span>Mostrando ' + desde + '–' + hasta + ' de ' + total + '</span>' +
+      '<div class="pag-controls">' +
+        '<button class="pg-btn" onclick="' + fnPage + '(' + (pagina - 1) + ')"' + (pagina === 1 ? ' disabled' : '') + '>‹</button>' +
+        pagesHtml +
+        '<button class="pg-btn" onclick="' + fnPage + '(' + (pagina + 1) + ')"' + (pagina === totalPags ? ' disabled' : '') + '>›</button>' +
+      '</div>' +
+      '<div class="pag-size">Por página:&nbsp;' + sizeBtns + '</div>' +
+    '</div>';
+}
+</script>
+

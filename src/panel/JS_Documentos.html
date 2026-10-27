@@ -1,0 +1,256 @@
+<script>
+/* ─────────────────────────────────────────────────────────────────────────
+   JS_Documentos.html — Lista de documentos del expediente en el modal
+   CupoFlow · Panel de Control y Administración - Solicitud de Créditos
+   ───────────────────────────────────────────────────────────────────────── */
+
+// ─── Carga de documentos ──────────────────────────────────────────────────────
+
+/**
+ * Carga los documentos del expediente actual desde el backend.
+ * Muestra skeleton mientras carga.
+ * Llamado por JS_Modal al cambiar a la pestaña 'documentos'.
+ */
+function cargarDocumentos() {
+  const token = STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '';
+  show('docsSkeleton');
+  hide('docsList');
+  showLoading();
+
+  if (!STATE.dropzoneInitialized) {
+    initDocDropzone();
+    STATE.dropzoneInitialized = true;
+  }
+
+  google.script.run
+    .withSuccessHandler(renderDocumentos)
+    .withFailureHandler(err => {
+      hideLoading();
+      hide('docsSkeleton');
+      show('docsList');
+      setHtml('docsList',
+        '<p style="color:var(--danger);padding:16px;">Error al cargar documentos: ' +
+        escHtml(err.message) + '</p>'
+      );
+    })
+    .apiGetDocumentosSolicitud(token, STATE.expedienteActual);
+}
+
+// ─── Render ───────────────────────────────────────────────────────────────────
+
+/**
+ * Renderiza la lista de documentos del expediente en la pestaña 'Documentos'.
+ * Cada documento muestra tipo, nombre, tamaño, estado y un enlace a Drive.
+ *
+ * @param {Array} docs - Array de objetos documento (resultado de apiGetDocumentosSolicitud).
+ */
+function renderDocumentos(docs) {
+  hideLoading();
+  STATE.documentosExpediente = docs || [];
+  const listEl = document.getElementById('docsList');
+  if (!listEl) return;
+
+  if (!docs || docs.length === 0) {
+    listEl.innerHTML =
+      '<div class="docs-empty">No se encontraron documentos para este expediente.</div>';
+  } else {
+    listEl.innerHTML = docs.map(_buildDocItem).join('');
+  }
+
+  hide('docsSkeleton');
+  show('docsList');
+
+  // Si existe un resultado de IA cargado, re-renderizar para actualizar los enlaces "Ver"
+  if (STATE.resultadoIA) {
+    setHtml('iaObservaciones', formatMarkdownToHtml(STATE.resultadoIA.observaciones_auditoria || '—'));
+  }
+}
+
+// ─── Helper privado ───────────────────────────────────────────────────────────
+
+/** Nombres legibles por tipo de documento */
+const DOC_TIPO_NOMBRES = {
+  FORMATO_SOLICITUD: 'Formato de Solicitud (Formulario Maestro)',
+  RUT             : 'RUT — Registro Único Tributario',
+  CERT_EXISTENCIA : 'Certificado de Existencia (Cámara de Comercio)',
+  CEDULA          : 'Cédula de Ciudadanía / Ext.',
+  ESTADOS_FIN     : 'Estados Financieros',
+  DECL_RENTA      : 'Declaración de Renta',
+  SOPORTE         : 'Soporte / Documento adicional',
+  ADICIONAL       : 'Soporte / Documento adicional'
+};
+
+/**
+ * Construye el HTML de un ítem de documento para la lista.
+ * @param  {Object} doc - Objeto de documento.
+ * @return {string}      - HTML del ítem.
+ */
+function _buildDocItem(doc) {
+  const driveUrl  = 'https://drive.google.com/file/d/' + doc.drive_file_id + '/view';
+  let tipoLabel = DOC_TIPO_NOMBRES[doc.tipo_documento] || doc.tipo_documento;
+  if (doc.nombre_archivo.toUpperCase().includes('OX-F-GFI')) {
+    tipoLabel = 'Formato de Solicitud (Formulario Maestro)';
+  }
+  const syncBadge = doc.estado_sync === 'SINCRONIZADO'
+    ? '<span class="badge badge-approved" style="font-size:10px;">Sincronizado</span>'
+    : '<span class="badge badge-pending"  style="font-size:10px;">' +
+      escHtml(doc.estado_sync || 'Pendiente') + '</span>';
+
+  return '<div class="doc-item">' +
+    '<div class="doc-item-icon">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+        '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>' +
+        '<polyline points="14 2 14 8 20 8"/>' +
+      '</svg>' +
+    '</div>' +
+    '<div class="doc-item-info">' +
+      '<div class="doc-item-type">' + escHtml(tipoLabel) + '</div>' +
+      '<div class="doc-item-name" title="' + escHtml(doc.nombre_archivo) + '">' +
+        escHtml(doc.nombre_archivo) +
+      '</div>' +
+      '<div class="doc-item-meta">' +
+        formatBytes(doc.tamano_bytes) + ' · ' +
+        syncBadge + ' · ' +
+        formatFecha(doc.fecha_subida) +
+      '</div>' +
+    '</div>' +
+    '<div style="display: flex; gap: 6px; align-items: center;">' +
+      '<a href="' + escHtml(driveUrl) + '" target="_blank" class="doc-item-link">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">' +
+          '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>' +
+          '<polyline points="15 3 21 3 21 9"/>' +
+          '<line x1="10" y1="14" x2="21" y2="3"/>' +
+        '</svg>Ver PDF' +
+      '</a>' +
+      '<button type="button" class="doc-item-link" onclick="eliminarDocumento(\'' + escHtml(doc.drive_file_id) + '\', \'' + escHtml(doc.nombre_archivo) + '\')" style="color: var(--danger); border-color: rgba(220, 38, 38, 0.2); background: rgba(220, 38, 38, 0.02); transition: all 0.12s ease;" onmouseenter="this.style.background=\'rgba(220, 38, 38, 0.08)\'; this.style.borderColor=\'var(--danger)\';" onmouseleave="this.style.background=\'rgba(220, 38, 38, 0.02)\'; this.style.borderColor=\'rgba(220, 38, 38, 0.2)\';">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:12px;height:12px;"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Eliminar' +
+      '</button>' +
+    '</div>' +
+    '</div>';
+}
+
+/**
+ * Maneja la selección de un archivo local para subirlo como documento adicional.
+ *
+ * @param {HTMLInputElement} input - Elemento input file.
+ */
+function onDocFileSelected(input) {
+  const token = STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '';
+  const file = input.files[0];
+  if (!file) return;
+
+  if (file.type !== 'application/pdf') {
+    showToast('Solo se permiten archivos en formato PDF.', 'error');
+    input.value = '';
+    return;
+  }
+
+  const tipo = 'SOPORTE';
+  const uuid = STATE.expedienteActual;
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const base64 = e.target.result.split(',')[1];
+    
+    // Mostrar progreso
+    show('uploadDocProgress');
+    document.getElementById('uploadDocStatus').textContent = `Subiendo ${file.name}...`;
+
+    google.script.run
+      .withSuccessHandler(res => {
+        hide('uploadDocProgress');
+        showToast('Documento subido y registrado con éxito.', 'success');
+        input.value = '';
+        cargarDocumentos(); // Recargar la lista
+      })
+      .withFailureHandler(err => {
+        hide('uploadDocProgress');
+        showToast('Error al subir documento: ' + err.message, 'error');
+        input.value = '';
+      })
+      .apiSubirDocumentoAdicional({
+        token: token,
+        uuid: uuid,
+        tipo_documento: tipo,
+        nombre_archivo: file.name,
+        tamano_bytes: file.size,
+        base64: base64
+      });
+  };
+  reader.readAsDataURL(file);
+}
+
+/**
+ * Inicializa los manejadores de eventos para arrastrar y soltar archivos PDF en la dropzone.
+ */
+function initDocDropzone() {
+  const dropzone = document.getElementById('docDropzone');
+  if (!dropzone) return;
+
+  ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+    dropzone.addEventListener(eventName, preventDefaults, false);
+    document.body.addEventListener(eventName, preventDefaults, false);
+  });
+
+  ['dragenter', 'dragover'].forEach(eventName => {
+    dropzone.addEventListener(eventName, () => dropzone.classList.add('dragover'), false);
+  });
+
+  ['dragleave', 'drop'].forEach(eventName => {
+    dropzone.addEventListener(eventName, () => dropzone.classList.remove('dragover'), false);
+  });
+
+  dropzone.addEventListener('drop', handleDrop, false);
+
+  function preventDefaults(e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  function handleDrop(e) {
+    const dt = e.dataTransfer;
+    const files = dt.files;
+    if (files && files.length > 0) {
+      const fileInput = document.getElementById('uploadDocFile');
+      if (fileInput) {
+        fileInput.files = files;
+        onDocFileSelected(fileInput);
+      }
+    }
+  }
+}
+
+/**
+ * Solicita confirmación al usuario para eliminar un documento del expediente actual.
+ *
+ * @param {string} fileId - ID del archivo en Google Drive.
+ * @param {string} nombreArchivo - Nombre del archivo para mostrar en el mensaje.
+ */
+function eliminarDocumento(fileId, nombreArchivo) {
+  if (!fileId) return;
+  const token = STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '';
+
+  mostrarModalConfirmacion({
+    titulo: 'Eliminar documento',
+    mensaje: `¿Estás seguro de eliminar el documento <strong>"${escHtml(nombreArchivo)}"</strong> de este expediente? Esta acción lo borrará de la base de datos y lo moverá a la papelera de Google Drive.`,
+    btnAceptarText: 'Sí, eliminar documento',
+    colorTheme: 'danger',
+    onAceptar: () => {
+      cerrarModalConfirm();
+      showLoading();
+      
+      google.script.run
+        .withSuccessHandler(res => {
+          hideLoading();
+          showToast('Documento eliminado con éxito.', 'success');
+          cargarDocumentos(); // Recargar lista
+        })
+        .withFailureHandler(err => {
+          hideLoading();
+          showToast('Error al eliminar el documento: ' + err.message, 'error');
+        })
+        .apiEliminarDocumento(token, fileId);
+    }
+  });
+}
+</script>

@@ -1,0 +1,1721 @@
+<script>
+  /* UI.html */
+  const TOTAL_STEPS = 5;
+
+
+  /* ═══════════════════════════════════════
+     NAVEGACIÓN
+  ═══════════════════════════════════════ */
+  function goTo(n) {
+    if (n < 1 || n > TOTAL_STEPS) return;
+
+    for (let i = 1; i <= TOTAL_STEPS; i++) {
+      const p = $('step' + i);
+      if (p) p.classList.toggle('hidden', i !== n);
+    }
+    STATE.step = n;
+    if (n > STATE.maxStep) STATE.maxStep = n;
+
+
+
+    for (let i = 1; i <= TOTAL_STEPS; i++) {
+      const pill = $('pill' + i);
+      const conn = $('conn' + i);
+      if (!pill) continue;
+      pill.classList.remove('is-active', 'is-done', 'is-disabled');
+      if (i === n) pill.classList.add('is-active');
+      else if (i <= STATE.maxStep) pill.classList.add('is-done');
+      else pill.classList.add('is-disabled');
+      if (conn) conn.classList.toggle('is-done', i < n);
+    }
+
+    const badge = $('stepBadge');
+    if (badge) badge.textContent = `Paso ${n} / ${TOTAL_STEPS}`;
+    const bar = $('progressBar');
+    if (bar) bar.style.width = (n / TOTAL_STEPS * 100) + '%';
+    if (typeof updateMobileStepMenu === 'function') {
+      updateMobileStepMenu(n);
+    }
+
+    if (n === 4) {
+      renderDocs();
+      // Restaurar modo EEFF si hay borrador
+      if (STATE._pendingEeffMode === 'CARTA') {
+        const toggle = $('eeff_toggle');
+        if (toggle) {
+          toggle.checked = true;
+          toggleEeffMode(true);
+        }
+        delete STATE._pendingEeffMode;
+      }
+    }
+    if (n === 5) buildSummary();
+
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  /* ═══════════════════════════════════════
+     NAVEGACIÓN MÓVIL (STEPPER MENU)
+  ═══════════════════════════════════════ */
+  function toggleMobileStepMenu() {
+    const menu = $('mobileStepMenu');
+    if (!menu) return;
+    const isHidden = menu.classList.contains('hidden');
+    if (isHidden) {
+      updateMobileStepMenu(STATE.step);
+      menu.classList.remove('hidden');
+      const btn = $('stepBadgeBtn');
+      if (btn) btn.setAttribute('aria-expanded', 'true');
+    } else {
+      closeMobileStepMenu();
+    }
+  }
+
+  function closeMobileStepMenu() {
+    const menu = $('mobileStepMenu');
+    if (!menu) return;
+    menu.classList.add('hidden');
+    const btn = $('stepBadgeBtn');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+  }
+
+  function updateMobileStepMenu(currentStep) {
+    for (let i = 1; i <= TOTAL_STEPS; i++) {
+      const item = $('mStep' + i);
+      const stateEl = $('mStepState' + i);
+      if (!item) continue;
+      item.classList.remove('is-active', 'is-done', 'is-disabled');
+
+      if (i === currentStep) {
+        item.classList.add('is-active');
+        if (stateEl) stateEl.innerHTML = '<span class="m-step-badge m-active">En curso</span>';
+      } else if (i <= STATE.maxStep) {
+        item.classList.add('is-done');
+        if (stateEl) stateEl.innerHTML = '<span class="m-step-badge m-done">✓ Listo</span>';
+      } else {
+        item.classList.add('is-disabled');
+        if (stateEl) stateEl.innerHTML = '<span class="m-step-badge m-locked"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>';
+      }
+    }
+  }
+
+  function onMobileStepClick(targetStep) {
+    if (targetStep < 1 || targetStep > TOTAL_STEPS) return;
+    if (targetStep > STATE.maxStep) return;
+    if (targetStep > STATE.step) {
+      if (typeof validateStep === 'function' && !validateStep(STATE.step)) {
+        closeMobileStepMenu();
+        return;
+      }
+    }
+    goTo(targetStep);
+    closeMobileStepMenu();
+  }
+
+  /* ═══════════════════════════════════════
+     BOTONES DE NAVEGACIÓN
+  ═══════════════════════════════════════ */
+  function bindNav() {
+    function nav(btnId, fn) {
+      const btn = $(btnId);
+      if (btn) btn.addEventListener('click', fn);
+    }
+
+    nav('btnNext1', () => { if (validateStep(1)) goTo(2); });
+    nav('btnBack2', () => goTo(1));
+    nav('btnNext2', () => { if (validateStep(2)) goTo(3); });
+    nav('btnBack3', () => goTo(2));
+    nav('btnNext3', () => { if (validateStep(3)) goTo(4); });
+    nav('btnBack4', () => goTo(3));
+    nav('btnNext4', () => { if (validateStep(4)) goTo(5); });
+
+    if ($('btnBack5')) $('btnBack5').onclick = () => goTo(4);
+
+    if ($('btnSubmit')) $('btnSubmit').onclick = () => {
+      if (validateStep(5)) submitForm();
+    };
+
+    document.querySelectorAll('.monto-btn').forEach(btn =>
+      btn.addEventListener('click', () => setMonto(btn.dataset.val))
+    );
+  }
+
+  /* ═══════════════════════════════════════
+     CHANGE #20 — Validation modal
+  ═══════════════════════════════════════ */
+  function showValidationModal(msg, title = "Atención") {
+    const prev = $('_valModal');
+    if (prev) prev.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = '_valModal';
+    overlay.style.cssText = `
+    position:fixed;inset:0;z-index:9999;display:flex;align-items:center;
+    justify-content:center;background:rgba(14, 54, 47,.55);backdrop-filter:blur(4px);
+  `;
+    overlay.innerHTML = `
+    <div style="
+      background:#fff;border-radius:16px;padding:28px 24px 22px;
+      max-width:420px;width:90%;
+      box-shadow:rgba(14, 54, 47,.18) 0 8px 24px, rgba(14, 54, 47,.12) 0 24px 64px;
+      animation:slideUpBox .22s ease;font-family:'Outfit',sans-serif;
+    ">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+        <div style="width:40px;height:40px;border-radius:10px;background:#ffede0;
+             display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="#e86a00">
+            <path d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm-1-5a1 1 0 0 1 1 1v2a1 1 0 0 1-2 0V9a1 1 0 0 1 1-1z"/>
+          </svg>
+        </div>
+        <div style="font-weight:700;font-size:15px;color:#194b3f;">${title}</div>
+      </div>
+      <div style="font-size:13.5px;color:#496769;line-height:1.65;margin-bottom:20px;">${msg}</div>
+      <button onclick="document.getElementById('_valModal').remove(); unlockScroll();" style="
+        width:100%;padding:11px;border:none;border-radius:10px;
+        background:#194b3f;color:#fff;font-size:14px;font-weight:600;
+        cursor:pointer;font-family:inherit;transition:opacity .15s;
+      " onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">Entendido</button>
+    </div>`;
+    overlay.addEventListener('click', e => {
+      if (e.target === overlay) {
+        overlay.remove();
+        unlockScroll();
+      }
+    });
+    document.body.appendChild(overlay);
+    lockScroll();
+  }
+
+  /**
+   * Traduce errores técnicos de red, base de datos, bloqueo o almacenamiento
+   * a mensajes más amigables y cotidianos en español.
+   */
+  function getFriendlyErrorMessage(err) {
+    const msg = (err && err.message) ? String(err.message) : String(err || "");
+    
+    // 1. Errores de Base de Datos / JDBC
+    if (/jdbc|connection|mysql|access denied|database/i.test(msg)) {
+      return "Tuvimos un inconveniente al guardar los datos de tu solicitud en nuestro sistema. Por favor, espera un momento e intenta enviar de nuevo.";
+    }
+    
+    // 2. Servidor ocupado / Bloqueos (Lock)
+    if (/servidor ocupado|lock/i.test(msg)) {
+      return "El servidor está procesando otras firmas y solicitudes en este momento. Por favor, espera unos 30 segundos y vuelve a intentar.";
+    }
+    
+    // 3. Errores de Google Drive / Archivos
+    if (/drive|folder|upload|chunk|session|expirada/i.test(msg)) {
+      return "No logramos subir o almacenar correctamente los documentos PDF en Google Drive. Verifica que tus archivos no estén protegidos con contraseña e inténtalo de nuevo.";
+    }
+
+    // 4. Conexión de red / Google Script fallas generales
+    if (/failed to execute|network|dns|timeout|script/i.test(msg)) {
+      return "La conexión de internet es inestable o el proceso tardó demasiado tiempo en responder. Revisa tu conexión de red e inténtalo de nuevo.";
+    }
+    
+    // 5. Campos faltantes (generalmente capturado por validación frontend, pero por si llega al backend)
+    if (/Falta:|Completa todos/i.test(msg)) {
+      return "Por favor, completa todos los campos requeridos en el formulario antes de enviar.";
+    }
+
+    // 6. Faltan documentos
+    if (/Faltan documentos:/i.test(msg)) {
+      const list = msg.replace(/Faltan documentos:\s*/i, "");
+      return `Para poder enviar la solicitud, es necesario que adjuntes los siguientes documentos obligatorios:<br><br><strong>${list}</strong>`;
+    }
+    
+    // 7. Tamaño o formato de archivo
+    if (/supera el límite|30\s*mb/i.test(msg)) {
+      return "Uno de los archivos que intentas subir supera el límite máximo de 30 MB. Por favor optimiza el PDF y vuelve a intentarlo.";
+    }
+    if (/solo PDF/i.test(msg)) {
+      return "Todos los documentos deben cargarse únicamente en formato PDF.";
+    }
+    
+    // 8. Términos y condiciones
+    if (/términos y condiciones/i.test(msg)) {
+      return "Debes leer y aceptar los términos y condiciones, así como la política de tratamiento de datos personales para continuar.";
+    }
+
+    // 9. Código de verificación inválido
+    if (/código incorrecto|incorrecto/i.test(msg)) {
+      return "El código de verificación ingresado no es correcto. Por favor verifica tu correo y digítalo nuevamente.";
+    }
+    if (/expirado/i.test(msg)) {
+      return "El código de verificación ha expirado. Por favor solicita un nuevo código.";
+    }
+
+    // Mensaje por defecto más amigable
+    return "No pudimos completar la operación en este momento debido a un inconveniente técnico temporal. Por favor, reintenta en unos instantes.";
+  }
+
+  function handleModalBackdropClick(e) {
+    const box = e.currentTarget.querySelector('.modal-box');
+    if (box && !box.contains(e.target)) closeUploadModal();
+  }
+
+  function closeUploadModal() {
+    const modal = $('uploadModal');
+    const btnClose = $('btnModalClose');
+    // Solo permitir cerrar si el botón ya está habilitado (upload terminado o en error)
+    if (!btnClose || btnClose.disabled) return;
+    if (modal) { modal.classList.add('hidden'); unlockScroll(); }
+    if (STATE.submitted === true) {
+      google.script.run.withSuccessHandler(function(url) {
+        window.open(url, '_top');
+      }).getScriptUrl();
+    }
+  }
+
+  /* ═══════════════════════════════════════
+     MODAL DE BIENVENIDA / INSTRUCTIVO
+     ═══════════════════════════════════════ */
+  function showWelcomeModal() {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.has('subsanar') || urlParams.has('subsanacion')) return;
+    } catch (_) {}
+
+    const modal = $('welcomeModal');
+    if (!modal) return;
+
+    // Resetear checkboxes y botón
+    const chkTerms = $('chkWelcomeTerms');
+    const chkData = $('chkWelcomeData');
+    const btnAccept = $('btnWelcomeAccept');
+    if (chkTerms) chkTerms.checked = false;
+    if (chkData) chkData.checked = false;
+    if (btnAccept) btnAccept.disabled = true;
+
+    modal.classList.remove('hidden');
+    lockScroll();
+  }
+
+  function checkWelcomeAcceptance() {
+    const chkTerms = $('chkWelcomeTerms');
+    const chkData = $('chkWelcomeData');
+    const btnAccept = $('btnWelcomeAccept');
+
+    const accepted = (chkTerms && chkTerms.checked) && (chkData && chkData.checked);
+    if (btnAccept) {
+      btnAccept.disabled = !accepted;
+    }
+  }
+
+  function closeWelcomeModal() {
+    const modal = $('welcomeModal');
+    if (modal) {
+      modal.classList.add('hidden');
+      unlockScroll();
+    }
+  }
+
+  /* ═══════════════════════════════════════
+     setMeter
+  ═══════════════════════════════════════ */
+  function setMeter(pct, text) {
+    const bar = $('uploadBar');
+    const txt = $('uploadText');
+    const pctEl = $('uploadPct');
+    if (bar) {
+      bar.style.width = pct + '%';
+      if (pct >= 100) {
+        bar.style.animation = 'none';
+      } else {
+        bar.style.animation = 'progress-shine 1.2s infinite linear';
+      }
+    }
+    if (txt) txt.textContent = text || '';
+    if (pctEl) pctEl.textContent = pct + '%';
+  }
+
+  function lockScroll() { document.body.classList.add('no-scroll'); }
+  function unlockScroll() { document.body.classList.remove('no-scroll'); }
+
+  /* ═══════════════════════════════════════
+     INFO TIPO CRÉDITO
+  ═══════════════════════════════════════ */
+  function updateInfoCredito(codigo) {
+    const box = $('infoCredito');
+    const body = $('infoCreditoBody');
+    if (!box || !body) return;
+
+    const INFO = {
+      EMP_NACIONAL: '<strong>Empresa Nacional:</strong> Requiere certificado de existencia (≤ 30 días), RUT, estados financieros (2 últimos años), cédula del representante legal y declaración de renta.',
+      EMP_EXTRANJERA: '<strong>Empresa Extranjera:</strong> Requiere certificado de constitución en país de origen, documento equivalente al registro mercantil, identificación del representante y estados financieros.',
+      PERS_JURIDICA: '<strong>Persona Jurídica:</strong> Requiere certificado de existencia, RUT, estados financieros, cédula del representante y extractos bancarios (últimos 3 meses).',
+      PERS_NAT_COM: '<strong>Persona Natural con Actividad Comercial:</strong> Requiere RUT, cámara de comercio (si aplica), certificación de ingresos, extractos bancarios y documento de identidad.'
+    };
+    const txt = INFO[codigo];
+    if (txt) { body.innerHTML = txt; box.classList.remove('hidden'); }
+    else { box.classList.add('hidden'); }
+  }
+
+  /* ═══════════════════════════════════════
+     selectTipoSol
+  ═══════════════════════════════════════ */
+  function selectTipoSol(codigo) {
+    const h = $('tipo_solicitante');
+    if (h) h.value = codigo;
+    updateInfoCredito(codigo);
+
+    const tipoSolicitud = ($('tipo_solicitud') || {}).value || 'NUEVA';
+  }
+
+  /* FISCAL CHOOSE */
+  function syncFiscalSelectionState() {
+    const checks = Array.from(document.querySelectorAll('.fiscal-check'));
+    if (!checks.length) return;
+
+    const r99Checked = checks.some(c => c.value === 'R-99-PN' && c.checked);
+    const othersChecked = checks.some(c => c.value !== 'R-99-PN' && c.checked);
+
+    checks.forEach(check => {
+      let shouldDisable = false;
+      if (r99Checked && check.value !== 'R-99-PN') {
+        shouldDisable = true;
+        check.checked = false;
+      } else if (othersChecked && check.value === 'R-99-PN') {
+        shouldDisable = true;
+        check.checked = false;
+      }
+
+      check.disabled = shouldDisable;
+      const row = check.closest('.fiscal-row');
+      if (row) {
+        row.classList.toggle('is-disabled', shouldDisable);
+      }
+    });
+
+    toggleFiscalOtro();
+  }
+
+  /** Muestra/oculta el campo de texto libre asociado a la opción "Otro" de responsabilidad fiscal. */
+  function toggleFiscalOtro() {
+    const chk  = $('fiscalOtroCheck');
+    const wrap = $('fiscalOtroWrap');
+    if (!chk || !wrap) return;
+    const mostrar = chk.checked && !chk.disabled;
+    wrap.style.display = mostrar ? '' : 'none';
+    if (!mostrar) {
+      const txt = $('fiscalOtroTexto');
+      if (txt) { txt.value = ''; txt.classList.remove('input-error'); }
+    }
+  }
+
+  function initFiscalMultiSelection() {
+    const checks = Array.from(document.querySelectorAll('.fiscal-check'));
+    if (!checks.length) return;
+
+    checks.forEach(check => {
+      check.addEventListener('change', function () {
+        syncFiscalSelectionState();
+      });
+    });
+
+    syncFiscalSelectionState();
+
+    document.querySelectorAll('.fiscal-row').forEach(row => {
+      row.setAttribute('tabindex', '0');
+      row.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        const cb = row.querySelector('.fiscal-check');
+        if (cb && !cb.disabled) { cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); }
+      });
+    });
+  }
+
+  /* ═══════════════════════════════════════
+     PHONE PREFIX EDITABLE
+  ═══════════════════════════════════════ */
+  function initPhonePrefix(prefixId, numberId, hiddenId) {
+    const prefixInput = $(prefixId);
+    const numberInput = $(numberId);
+    const hiddenInput = $(hiddenId);
+
+    if (!prefixInput || !numberInput || !hiddenInput) return;
+
+    function normalizePrefix(value) {
+      let v = String(value || '').trim();
+
+      v = v.replace(/\s+/g, '');
+      v = v.replace(/[^\d+]/g, '');
+
+      if (v.includes('+')) {
+        v = '+' + v.replace(/\+/g, '');
+      } else if (v) {
+        v = '+' + v.replace(/\+/g, '');
+      }
+
+      if (!v) v = '+57';
+
+      return v.slice(0, 4);
+    }
+
+    function normalizeNumber(value) {
+      return String(value || '').replace(/\D/g, '');
+    }
+
+    function syncPhone() {
+      const prefix = normalizePrefix(prefixInput.value);
+      const number = normalizeNumber(numberInput.value);
+
+      prefixInput.value = prefix;
+      numberInput.value = number;
+
+      hiddenInput.value = number ? `${prefix} ${number}` : prefix;
+    }
+
+    prefixInput.addEventListener('input', syncPhone);
+    numberInput.addEventListener('input', syncPhone);
+
+    prefixInput.addEventListener('blur', () => {
+      prefixInput.value = normalizePrefix(prefixInput.value);
+      syncPhone();
+    });
+
+    numberInput.addEventListener('blur', syncPhone);
+
+    prefixInput.addEventListener('paste', () => setTimeout(syncPhone, 0));
+    numberInput.addEventListener('paste', () => setTimeout(syncPhone, 0));
+
+    syncPhone();
+  }
+
+  function draftBannerReveal() {
+    const icoEl = $('draftBannerIco');
+    if (icoEl) {
+      setTimeout(() => {
+        icoEl.style.display = '';
+        icoEl.style.animation = 'fadeInOvl .3s ease';
+      }, 250);
+    }
+    const banner = $('draftBanner');
+    if (!banner || banner.style.display === 'none') return;
+
+    const textEl = $('draftBannerText');
+    if (textEl && banner._savedText) {
+      textEl.style.transition = 'opacity .25s ease';
+      textEl.style.opacity = '0';
+      setTimeout(() => {
+        textEl.innerHTML = banner._savedText;
+        textEl.style.opacity = '1';
+      }, 250);
+    }
+
+    const btnsEl = $('draftBannerBtns');
+    if (btnsEl) {
+      btnsEl.style.transition = 'opacity .25s ease';
+      btnsEl.style.opacity = '0';
+      setTimeout(() => {
+        btnsEl.innerHTML = `
+        <button onclick="draftRestoreAndClose()"
+          style="background:none; border:1.5px solid #d08b43; color:#d08b43;
+          border-radius:7px; padding:5px 13px; font-family:'Outfit',sans-serif; font-size:12px;
+          font-weight:700; cursor:pointer; white-space:nowrap; transition:background .15s, color .15s;"
+          onmouseover="this.style.background='#d08b43';this.style.color='#194b3f'"
+          onmouseout="this.style.background='none';this.style.color='#d08b43'">
+          Restaurar
+        </button>
+        <button onclick="draftDiscardAndClose()"
+          style="background:none; border:1.5px solid rgba(255,255,255,.3); color:rgba(255,255,255,.7);
+          border-radius:7px; padding:5px 11px; font-family:'Outfit',sans-serif; font-size:12px;
+          font-weight:600; cursor:pointer; white-space:nowrap; transition:border-color .15s, color .15s;"
+          onmouseover="this.style.borderColor='rgba(255,255,255,.6)';this.style.color='#fff'"
+          onmouseout="this.style.borderColor='rgba(255,255,255,.3)';this.style.color='rgba(255,255,255,.7)'">
+          Descartar
+        </button>
+      `;
+        btnsEl.style.opacity = '1';
+      }, 250);
+    }
+  }
+
+  /* ═══════════════════════════════════════
+     onCatalogosLoaded
+  ═══════════════════════════════════════ */
+  function onCatalogosLoaded(data) {
+    const skEl = $('skeletonScreen');
+    if (skEl) {
+      skEl.style.opacity = '0';
+      skEl.style.transition = 'opacity 0.3s ease';
+      setTimeout(() => skEl.remove(), 300);
+    }
+
+    const stepperSk = $('stepperSkeleton');
+    const stepperReal = $('stepperReal');
+    const badgeWrap = $('stepBadgeWrap');
+    if (stepperSk) stepperSk.remove();
+    if (stepperReal) stepperReal.style.display = '';
+    if (badgeWrap) badgeWrap.style.visibility = 'visible';
+
+    STATE.catalogos = data;
+
+    // Centros multi-select
+    initCentroCheckboxes(data.centros || []);
+
+    // Tipo identificación representante
+    initCsel('csel_tipo_id', {
+      items: [
+        { val: 'CC', label: 'Cédula de ciudadanía' },
+        { val: 'CE', label: 'Cédula de extranjería' },
+        { val: 'NIT', label: 'NIT' },
+        { val: 'PASAPORT', label: 'Pasaporte' }
+      ],
+      onChange: val => {
+        const h = $('tipo_id_rep');
+        if (h) h.value = val;
+        const numId = $('num_id_rep');
+        if (numId) {
+          if (val === 'PASAPORT') {
+            numId.inputMode = 'text';
+          } else {
+            numId.inputMode = 'numeric';
+            // Remueve cualquier letra si cambia a tipo de ID puramente numérico
+            numId.value = numId.value.replace(/[^0-9]/g, '');
+          }
+          numId.dispatchEvent(new Event('input'));
+          numId.dispatchEvent(new Event('blur'));
+        }
+      }
+    });
+
+    // Moneda fija COP
+    const monedaH = $('moneda');
+    if (monedaH) monedaH.value = 'COP';
+
+    // Tipo solicitud cards
+    document.querySelectorAll('#tipoSolicitudGrid .tipo-card').forEach(card => {
+      card.addEventListener('click', e => {
+        if (e.target.closest('input[type="radio"]')) return;
+        document.querySelectorAll('#tipoSolicitudGrid .tipo-card').forEach(c => {
+          c.classList.remove('selected');
+          const r = c.querySelector('input[type="radio"]');
+          if (r) r.checked = false;
+        });
+        card.classList.add('selected');
+        const radio = card.querySelector('input[type="radio"]');
+        if (radio) radio.checked = true;
+        const h = $('tipo_solicitud');
+        if (h) {
+          h.value = card.dataset.code;
+        }
+      });
+    });
+
+    // TAB support — tipo solicitud cards
+    document.querySelectorAll('#tipoSolicitudGrid .tipo-card').forEach(card => {
+      card.setAttribute('tabindex', '0');
+      card.addEventListener('keydown', e => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        document.querySelectorAll('#tipoSolicitudGrid .tipo-card').forEach(c => {
+          c.classList.remove('selected');
+          const r = c.querySelector('input[type="radio"]');
+          if (r) r.checked = false;
+        });
+        card.classList.add('selected');
+        const radio = card.querySelector('input[type="radio"]');
+        if (radio) radio.checked = true;
+        const h = $('tipo_solicitud');
+        if (h) {
+          h.value = card.dataset.code;
+        }
+      });
+    });
+
+    // TAB support — radio inscripción proveedores
+    document.querySelectorAll('.radio-item').forEach(item => {
+      item.setAttribute('tabindex', '0');
+      item.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); item.click(); }
+      });
+    });
+
+    // Responsabilidad fiscal
+    initFiscalMultiSelection();
+
+    // Referencias dinámicas
+    initRefs();
+
+    // Fecha diligenciamiento y fecha firma — bloqueadas a hoy
+    const hoy = (() => {
+      const d = new Date();
+      return String(d.getDate()).padStart(2, '0') + '/' +
+        String(d.getMonth() + 1).padStart(2, '0') + '/' +
+        d.getFullYear();
+    })();
+    const fd = $('fecha_diligenciamiento');
+    if (fd) fd.value = hoy;
+    const ff = $('fecha_firma');
+    if (ff) ff.value = hoy;
+
+    // Teléfonos
+    initPhonePrefix('tel_rep_prefix', 'tel_rep_num', 'tel_rep');
+    initPhonePrefix('cont_tes_tel_prefix', 'cont_tes_tel_num', 'cont_tes_tel');
+    initPhonePrefix('cont_cp_tel_prefix', 'cont_cp_tel_num', 'cont_cp_tel');
+    initPhonePrefix('cont_df_tel_prefix', 'cont_df_tel_num', 'cont_df_tel');
+    initPhonePrefix('cont_com_tel_prefix', 'cont_com_tel_num', 'cont_com_tel');
+
+    // Navegación directa por stepper
+    initStepperNav();
+
+    // Validaciones de input
+    initInputValidations();
+
+    // Limpiar observaciones al cargar para evitar foco/selección residual del browser
+    const obsEl = $('observaciones');
+    if (obsEl) { obsEl.value = ''; obsEl.blur(); }
+
+    // Cargar ejecutivos de cuenta
+    initEjecutivoCsel(data.comerciales || []);
+
+    STATE.maxStep = 1;
+    goTo(1);
+
+    // Verificar si existe un borrador previo y mostrar el banner
+    const draft = draftLoad();
+    if (draft) {
+      if (STATE._pendingDraftRestore) {
+        STATE._pendingDraftRestore = false;
+        draftRestore(draft);
+      } else {
+        draftShowBanner(draft);
+        draftBannerReveal();
+      }
+    }
+  }
+
+  /* ═══════════════════════════════════════
+     init
+  ═══════════════════════════════════════ */
+  function init() {
+    bindNav();
+    showWelcomeModal();
+
+    google.script.run
+      .withSuccessHandler(onCatalogosLoaded)
+      .withFailureHandler(err => {
+        showValidationModal(
+          'No pudimos inicializar correctamente el formulario de solicitud:<br><br>' +
+          '<strong>' + getFriendlyErrorMessage(err) + '</strong>',
+          'Inconveniente de inicio'
+        );
+      })
+      .apiGetCatalogos();
+
+    // ── Modal recomendación firma eliminado ──
+
+    // Capturar IP del dispositivo
+    fetch('https://api.ipify.org?format=json')
+      .then(r => r.json())
+      .then(d => { STATE.ip_dispositivo = d.ip || null; })
+      .catch(() => { STATE.ip_dispositivo = null; });
+
+    // Verificar si el enlace viene con parámetro de subsanación (?subsanar=UUID)
+    checkSubsanarUrlParam();
+    setTimeout(checkSubsanarUrlParam, 400);
+  }
+
+  /* ═══════════════════════════════════════
+     SUBSANACIÓN DE SOLICITUDES DEVUELTAS
+  ═══════════════════════════════════════ */
+  const SUBSANAR_STATE = {
+    uuid: null,
+    solicitud: null,
+    files: {}, // tipo -> { name, base64 }
+    segundaFirma: {
+      nombre: '',
+      cargo: '',
+      correo: '',
+      verified: false
+    }
+  };
+
+  function checkSubsanarUrlParam() {
+    try {
+      const parseAndOpen = (uuid) => {
+        if (uuid && uuid.trim()) {
+          abrirModalSubsanacion(uuid.trim());
+        }
+      };
+
+      // 1. Intentar con URLSearchParams estándar del iframe
+      let uuid = '';
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        uuid = urlParams.get('subsanar') || urlParams.get('subsanacion') || urlParams.get('uuid') || '';
+      } catch (_) {}
+
+      if (uuid) {
+        parseAndOpen(uuid);
+        return;
+      }
+
+      // 2. Intentar con la API oficial de Google Apps Script para el top-level window
+      if (typeof google !== 'undefined' && google.script && google.script.url && google.script.url.getLocation) {
+        google.script.url.getLocation(function(loc) {
+          if (loc && loc.parameter) {
+            const paramUuid = loc.parameter.subsanar || loc.parameter.subsanacion || loc.parameter.uuid;
+            if (paramUuid) {
+              parseAndOpen(paramUuid);
+            }
+          }
+        });
+      }
+    } catch (_) {}
+  }
+
+  function _setTxt(id, val) {
+    const el = $(id);
+    if (el) el.textContent = (val !== null && val !== undefined) ? String(val) : '';
+  }
+
+  function abrirModalSubsanacion(uuidOrCode) {
+    if (!uuidOrCode) return;
+    SUBSANAR_STATE.uuid = uuidOrCode;
+    SUBSANAR_STATE.files = {};
+    SUBSANAR_STATE.segundaFirma = {
+      nombre: '',
+      cargo: '',
+      correo: '',
+      verified: false
+    };
+    
+    const welcome = $('welcomeModal');
+    if (welcome) {
+      welcome.classList.add('hidden');
+    }
+
+    const modal = $('modalSubsanar');
+    if (modal) {
+      modal.style.display = 'flex';
+      modal.classList.remove('hidden');
+    }
+    const header = $('subsanarHeader');
+    if (header) header.style.display = 'flex';
+    const bodyContent = $('subsanarBodyContent');
+    if (bodyContent) bodyContent.style.display = 'block';
+    const successState = $('subsanarSuccessState');
+    if (successState) {
+      successState.style.display = 'none';
+      successState.classList.add('hidden');
+    }
+
+    _setTxt('subsanarRazon', 'Cargando...');
+    _setTxt('subsanarNit', 'Cargando...');
+    _setTxt('subsanarCodigo', uuidOrCode);
+    _setTxt('subsanarObservaciones', 'Consultando las observaciones del Comité de Crédito...');
+
+    ['CERT_EXISTENCIA', 'RUT', 'CEDULA_REP', 'ESTADOS_FIN', 'OTRO'].forEach(tipo => {
+      const el = $('subsanarName_' + tipo);
+      if (el) el.textContent = 'No adjuntado';
+      const input = $('subsanarFile_' + tipo);
+      if (input) input.value = '';
+    });
+
+    // Reset sección Segunda Firma
+    const repSelect = $('subsanarRepSelect');
+    if (repSelect) {
+      repSelect.innerHTML = '<option value="">-- Selecciona un representante extraído de la Cámara de Comercio --</option><option value="__OTRO__">Otro Representante Legal (Ingresar manualmente)...</option>';
+      repSelect.disabled = false;
+    }
+    const manualWrap = $('subsanarRepManualWrap');
+    if (manualWrap) manualWrap.style.display = 'none';
+    const manualNombre = $('subsanarRepManualNombre');
+    if (manualNombre) { manualNombre.value = ''; manualNombre.disabled = false; }
+    const manualCargo = $('subsanarRepManualCargo');
+    if (manualCargo) { manualCargo.value = ''; manualCargo.disabled = false; }
+    const repEmail = $('subsanarRepEmail');
+    if (repEmail) { repEmail.value = ''; repEmail.disabled = false; }
+    const sendOtpBtn = $('btnSubsanarSendOtp');
+    if (sendOtpBtn) { sendOtpBtn.disabled = false; sendOtpBtn.textContent = 'Enviar Código OTP'; }
+    const otpBox = $('subsanarOtpBox');
+    if (otpBox) otpBox.style.display = 'none';
+    const otpInput = $('subsanarOtpInput');
+    if (otpInput) { otpInput.value = ''; otpInput.disabled = false; }
+    const otpError = $('subsanarOtpError');
+    if (otpError) otpError.style.display = 'none';
+    const otpSuccess = $('subsanarOtpSuccessBadge');
+    if (otpSuccess) otpSuccess.style.display = 'none';
+
+    actualizarBotonSubsanar();
+
+    google.script.run
+      .withSuccessHandler(res => {
+        if (!res || !res.ok || !res.solicitud) {
+          _setTxt('subsanarObservaciones', res && res.error ? res.error : 'No se pudo obtener el detalle de la solicitud.');
+          return;
+        }
+        SUBSANAR_STATE.solicitud = res.solicitud;
+        SUBSANAR_STATE.uuid = res.solicitud.uuid;
+        _setTxt('subsanarRazon', res.solicitud.razon_social || '—');
+        _setTxt('subsanarNit', res.solicitud.identificacion || '—');
+        _setTxt('subsanarCodigo', res.solicitud.codigo_solicitud || res.solicitud.uuid);
+        _setTxt('subsanarObservaciones', res.solicitud.observaciones || 'No se registraron observaciones adicionales.');
+
+        // Poblado de representantes legales
+        if (repSelect) {
+          repSelect.innerHTML = '<option value="">-- Selecciona un representante extraído de la Cámara de Comercio --</option>';
+          const reps = res.solicitud.representantes_disponibles || [];
+          if (reps.length > 0) {
+            reps.forEach((r, idx) => {
+              const opt = document.createElement('option');
+              opt.value = String(idx);
+              const ccStr = r.num_id ? ` (CC: ${r.num_id})` : '';
+              const cargoStr = r.cargo ? ` - ${r.cargo}` : '';
+              opt.textContent = `${r.nombre || 'Representante'}${cargoStr}${ccStr}`;
+              opt.dataset.nombre = r.nombre || '';
+              opt.dataset.cargo = r.cargo || 'Representante Legal';
+              repSelect.appendChild(opt);
+            });
+          }
+          const optOtro = document.createElement('option');
+          optOtro.value = '__OTRO__';
+          optOtro.textContent = 'Otro Representante Legal (Ingresar manualmente)...';
+          repSelect.appendChild(optOtro);
+        }
+
+        // Badge de requerimiento
+        const badge = $('subsanarFirmaBadge');
+        if (badge) {
+          if (res.solicitud.requiere_segunda_firma) {
+            badge.textContent = 'Requerido por Cupo';
+            badge.style.background = '#fee2e2';
+            badge.style.color = '#991b1b';
+          } else {
+            badge.textContent = 'Refrendo Opcional';
+            badge.style.background = '#e2f0f0';
+            badge.style.color = '#466A6A';
+          }
+        }
+      })
+      .withFailureHandler(err => {
+        _setTxt('subsanarObservaciones', 'Error: ' + err.message);
+      })
+      .apiGetSolicitudSubsanar(uuidOrCode);
+  }
+
+  function closeSubsanarModal() {
+    const modal = $('modalSubsanar');
+    if (modal) {
+      modal.style.display = 'none';
+      modal.classList.add('hidden');
+    }
+  }
+
+  function triggerSubsanarFile(tipo) {
+    const input = $('subsanarFile_' + tipo);
+    if (input) input.click();
+  }
+
+  function handleSubsanarFile(event, tipo) {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+      showValidationModal('Solo se admiten documentos en formato <strong>PDF</strong>.');
+      event.target.value = '';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      SUBSANAR_STATE.files[tipo] = {
+        tipo: tipo,
+        name: file.name,
+        base64: e.target.result
+      };
+      const nameEl = $('subsanarName_' + tipo);
+      if (nameEl) {
+        nameEl.innerHTML = `<span style="color:#0f5132;font-weight:700;">✓ ` + escHtml(file.name) + `</span> <span style="color:#638c8c;font-size:11px;">(` + Math.round(file.size/1024) + ` KB)</span>`;
+      }
+      const slot = document.querySelector(`.subsanar-slot[data-tipo="${tipo}"]`);
+      if (slot) {
+        slot.style.borderColor = 'var(--gold, #ca711f)';
+        slot.style.background = 'rgba(202, 113, 31, 0.04)';
+      }
+      const btnSel = $('subsanarBtn_' + tipo);
+      if (btnSel) btnSel.textContent = 'Cambiar PDF';
+      const btnRem = $('subsanarBtnRemove_' + tipo);
+      if (btnRem) btnRem.style.display = 'inline-flex';
+      actualizarBotonSubsanar();
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function removerSubsanarFile(tipo) {
+    delete SUBSANAR_STATE.files[tipo];
+    const input = $('subsanarFile_' + tipo);
+    if (input) input.value = '';
+    const nameEl = $('subsanarName_' + tipo);
+    if (nameEl) nameEl.textContent = 'No adjuntado';
+    const slot = document.querySelector(`.subsanar-slot[data-tipo="${tipo}"]`);
+    if (slot) {
+      slot.style.borderColor = '#e2f0f0';
+      slot.style.background = '#ffffff';
+    }
+    const btnSel = $('subsanarBtn_' + tipo);
+    if (btnSel) btnSel.textContent = 'Seleccionar PDF';
+    const btnRem = $('subsanarBtnRemove_' + tipo);
+    if (btnRem) btnRem.style.display = 'none';
+    actualizarBotonSubsanar();
+  }
+
+  // ─── Controladores de Segunda Firma en Subsanación ───
+
+  function handleSubsanarRepChange() {
+    const sel = $('subsanarRepSelect');
+    const val = sel ? sel.value : '';
+    const manualWrap = $('subsanarRepManualWrap');
+    
+    // Reset estado de verificación si cambia el firmante
+    SUBSANAR_STATE.segundaFirma.verified = false;
+    const otpBox = $('subsanarOtpBox');
+    if (otpBox) otpBox.style.display = 'none';
+    const otpSuccess = $('subsanarOtpSuccessBadge');
+    if (otpSuccess) otpSuccess.style.display = 'none';
+    const repEmail = $('subsanarRepEmail');
+    if (repEmail) repEmail.disabled = false;
+    const btnSendOtp = $('btnSubsanarSendOtp');
+    if (btnSendOtp) { btnSendOtp.disabled = false; btnSendOtp.textContent = 'Enviar Código OTP'; }
+
+    if (val === '__OTRO__') {
+      if (manualWrap) manualWrap.style.display = 'grid';
+      SUBSANAR_STATE.segundaFirma.nombre = $('subsanarRepManualNombre') ? $('subsanarRepManualNombre').value.trim() : '';
+      SUBSANAR_STATE.segundaFirma.cargo = $('subsanarRepManualCargo') ? $('subsanarRepManualCargo').value.trim() : '';
+    } else if (val !== '') {
+      if (manualWrap) manualWrap.style.display = 'none';
+      const opt = sel.selectedOptions[0];
+      SUBSANAR_STATE.segundaFirma.nombre = opt ? (opt.dataset.nombre || opt.textContent.split(' - ')[0]) : '';
+      SUBSANAR_STATE.segundaFirma.cargo = opt ? (opt.dataset.cargo || 'Representante Legal') : '';
+    } else {
+      if (manualWrap) manualWrap.style.display = 'none';
+      SUBSANAR_STATE.segundaFirma.nombre = '';
+      SUBSANAR_STATE.segundaFirma.cargo = '';
+    }
+    actualizarBotonSubsanar();
+  }
+
+  function onSubsanarRepDataChange() {
+    SUBSANAR_STATE.segundaFirma.nombre = $('subsanarRepManualNombre') ? $('subsanarRepManualNombre').value.trim() : '';
+    SUBSANAR_STATE.segundaFirma.cargo = $('subsanarRepManualCargo') ? $('subsanarRepManualCargo').value.trim() : '';
+    SUBSANAR_STATE.segundaFirma.verified = false;
+    const otpSuccess = $('subsanarOtpSuccessBadge');
+    if (otpSuccess) otpSuccess.style.display = 'none';
+    actualizarBotonSubsanar();
+  }
+
+  function onSubsanarRepEmailChange() {
+    const emailInput = $('subsanarRepEmail');
+    SUBSANAR_STATE.segundaFirma.correo = emailInput ? emailInput.value.trim() : '';
+    SUBSANAR_STATE.segundaFirma.verified = false;
+    const otpBox = $('subsanarOtpBox');
+    if (otpBox) otpBox.style.display = 'none';
+    const otpSuccess = $('subsanarOtpSuccessBadge');
+    if (otpSuccess) otpSuccess.style.display = 'none';
+    const btnSendOtp = $('btnSubsanarSendOtp');
+    if (btnSendOtp) { btnSendOtp.disabled = false; btnSendOtp.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg> Enviar Código OTP'; }
+    actualizarBotonSubsanar();
+  }
+
+  function sendSubsanarOtp() {
+    const sel = $('subsanarRepSelect');
+    const val = sel ? sel.value : '';
+    if (!val) {
+      showValidationModal('Por favor selecciona primero al representante legal que realizará la segunda firma.');
+      return;
+    }
+    if (val === '__OTRO__' && !SUBSANAR_STATE.segundaFirma.nombre) {
+      showValidationModal('Por favor ingresa el nombre del representante legal suplente o autorizado.');
+      return;
+    }
+
+    const email = $('subsanarRepEmail') ? $('subsanarRepEmail').value.trim() : '';
+    if (!email || !email.includes('@') || !email.includes('.')) {
+      showValidationModal('Por favor ingresa un correo electrónico válido para el segundo firmante.');
+      return;
+    }
+
+    SUBSANAR_STATE.segundaFirma.correo = email;
+
+    const btn = $('btnSubsanarSendOtp');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Enviando código...';
+    }
+
+    google.script.run
+      .withSuccessHandler(() => {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Código Enviado';
+          btn.style.background = '#16a34a';
+        }
+        const otpBox = $('subsanarOtpBox');
+        if (otpBox) otpBox.style.display = 'block';
+        const otpInput = $('subsanarOtpInput');
+        if (otpInput) {
+          otpInput.value = '';
+          otpInput.focus();
+        }
+        const otpError = $('subsanarOtpError');
+        if (otpError) otpError.style.display = 'none';
+      })
+      .withFailureHandler(err => {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg> Reintentar Envío';
+          btn.style.background = 'linear-gradient(135deg, #194b3f 0%, #0e362f 100%)';
+        }
+        showValidationModal('Error al enviar código de verificación OTP: ' + err.message);
+      })
+      .apiSendVerificationCode(email);
+  }
+
+  function verifySubsanarOtp() {
+    const email = SUBSANAR_STATE.segundaFirma.correo;
+    const otpInput = $('subsanarOtpInput');
+    const code = otpInput ? otpInput.value.trim().toUpperCase() : '';
+    const errEl = $('subsanarOtpError');
+
+    if (!code || code.length < 5) {
+      if (errEl) {
+        errEl.textContent = 'Ingresa el código de 6 caracteres.';
+        errEl.style.display = 'block';
+      }
+      return;
+    }
+
+    const btn = $('btnSubsanarVerifyOtp');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Validando...';
+    }
+
+    google.script.run
+      .withSuccessHandler(isValid => {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Validar Código';
+        }
+        if (isValid === true) {
+          SUBSANAR_STATE.segundaFirma.verified = true;
+          const otpBox = $('subsanarOtpBox');
+          if (otpBox) otpBox.style.display = 'none';
+          const otpSuccess = $('subsanarOtpSuccessBadge');
+          if (otpSuccess) otpSuccess.style.display = 'flex';
+          
+          // Bloquear campos para evitar modificaciones inconsistentes
+          const repSelect = $('subsanarRepSelect');
+          if (repSelect) repSelect.disabled = true;
+          const manualNombre = $('subsanarRepManualNombre');
+          if (manualNombre) manualNombre.disabled = true;
+          const manualCargo = $('subsanarRepManualCargo');
+          if (manualCargo) manualCargo.disabled = true;
+          const repEmail = $('subsanarRepEmail');
+          if (repEmail) repEmail.disabled = true;
+          const btnSendOtp = $('btnSubsanarSendOtp');
+          if (btnSendOtp) btnSendOtp.disabled = true;
+
+          actualizarBotonSubsanar();
+        } else {
+          if (errEl) {
+            errEl.textContent = 'Código incorrecto o expirado. Por favor verifica e intenta de nuevo.';
+            errEl.style.display = 'block';
+          }
+        }
+      })
+      .withFailureHandler(err => {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Validar Código';
+        }
+        if (errEl) {
+          errEl.textContent = 'Error: ' + err.message;
+          errEl.style.display = 'block';
+        }
+      })
+      .apiVerifyCode(email, code);
+  }
+
+  function actualizarBotonSubsanar() {
+    const btn = $('btnEnviarSubsanar');
+    if (!btn) return;
+    const count = Object.keys(SUBSANAR_STATE.files).length;
+    const hasFirma = SUBSANAR_STATE.segundaFirma.verified;
+
+    btn.disabled = (count === 0 && !hasFirma);
+    btn.style.opacity = btn.disabled ? '0.55' : '1';
+    btn.style.cursor = btn.disabled ? 'not-allowed' : 'pointer';
+    btn.style.boxShadow = btn.disabled ? 'none' : '0 4px 14px rgba(208, 139, 67, 0.35)';
+
+    const iconSvg = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>';
+
+    if (count > 0 && hasFirma) {
+      btn.innerHTML = `${iconSvg} Enviar ${count} Documento${count > 1 ? 's' : ''} y Segunda Firma`;
+    } else if (count > 0) {
+      btn.innerHTML = `${iconSvg} Enviar ${count} Documento${count > 1 ? 's' : ''} Subsanado${count > 1 ? 's' : ''}`;
+    } else if (hasFirma) {
+      btn.textContent = 'Enviar Segunda Firma Validada';
+    } else {
+      btn.textContent = 'Enviar Subsanación';
+    }
+  }
+
+  function enviarSubsanacion() {
+    const filesArr = Object.values(SUBSANAR_STATE.files);
+    const hasFirma = SUBSANAR_STATE.segundaFirma.verified;
+
+    if (!filesArr.length && !hasFirma) {
+      showValidationModal('Por favor adjunta al menos un documento o completa la verificación de la segunda firma para subsanar.');
+      return;
+    }
+    const btn = $('btnEnviarSubsanar');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Enviando subsanación...';
+    }
+
+    const payload = {
+      uuid: SUBSANAR_STATE.uuid,
+      files: filesArr,
+      segunda_firma: hasFirma ? {
+        nombre: SUBSANAR_STATE.segundaFirma.nombre,
+        cargo:  SUBSANAR_STATE.segundaFirma.cargo,
+        correo: SUBSANAR_STATE.segundaFirma.correo,
+        ip: (window._CLIENT_IP_ || '')
+      } : null
+    };
+
+    google.script.run
+      .withSuccessHandler(res => {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Enviar Subsanación';
+        }
+        if (res && res.ok) {
+          const header = $('subsanarHeader');
+          if (header) header.style.display = 'none';
+          const bodyContent = $('subsanarBodyContent');
+          if (bodyContent) bodyContent.style.display = 'none';
+          const successState = $('subsanarSuccessState');
+          if (successState) {
+            successState.style.display = 'block';
+            successState.classList.remove('hidden');
+          }
+        } else {
+          showValidationModal('Ocurrió un error al procesar la subsanación: ' + (res && res.error ? res.error : 'Error desconocido'));
+        }
+      })
+      .withFailureHandler(err => {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Enviar Subsanación';
+        }
+        showValidationModal('Error al enviar subsanación: ' + err.message);
+      })
+      .apiSubsanarDocumentos(payload);
+  }
+
+  function cerrarModalFirmaRec() {
+    // Eliminado
+  }
+
+  /* ═══════════════════════════════════════
+     DRAFT — Borrador automático y manual
+  ═══════════════════════════════════════ */
+  const _draftStorage = {
+    get: function(key) {
+      try {
+        const v = localStorage.getItem(key);
+        if (v) return v;
+      } catch (_) {}
+      try {
+        const v = sessionStorage.getItem(key);
+        if (v) return v;
+      } catch (_) {}
+      return window._DEMO_DRAFT_MEM_ || null;
+    },
+    set: function(key, val) {
+      try { localStorage.setItem(key, val); } catch (_) {}
+      try { sessionStorage.setItem(key, val); } catch (_) {}
+      window._DEMO_DRAFT_MEM_ = val;
+    },
+    remove: function(key) {
+      try { localStorage.removeItem(key); } catch (_) {}
+      try { sessionStorage.removeItem(key); } catch (_) {}
+      delete window._DEMO_DRAFT_MEM_;
+    }
+  };
+
+  function draftSave() {
+    if (STATE.submitted === true) return;
+    try {
+      const v = id => ($(id) || {}).value || '';
+      const draft = {
+        step: STATE.step || 1,
+        maxStep: STATE.maxStep || 1,
+        tipo_solicitud: v('tipo_solicitud'),
+        selectedCentros: (STATE.selectedCentros || []).slice(),
+        razon_social: v('razon_social'),
+        nombre_comercial: v('nombre_comercial'),
+        nit: v('nit'),
+        direccion: v('direccion'),
+        ciudad: v('ciudad'),
+        departamento: v('departamento'),
+        cod_postal: v('cod_postal'),
+        nombre_rep_legal: v('nombre_rep_legal'),
+        tipo_id_rep: v('tipo_id_rep'),
+        num_id_rep: v('num_id_rep'),
+        cargo_rep: v('cargo_rep'),
+        tel_rep_prefix: ($('tel_rep_prefix') || {}).value || '',
+        tel_rep_num: ($('tel_rep_num') || {}).value || '',
+        correo_rep: v('correo_rep'),
+        monto: v('monto'),
+        ejecutivo_cuenta: v('ejecutivo_cuenta'),
+        eeffMode: STATE.eeffMode || 'EEFF',
+        fiscal: Array.from(document.querySelectorAll('.fiscal-check:checked')).map(c => c.value),
+        fiscalOtroTexto: v('fiscalOtroTexto'),
+        cont_tes_nombre: v('cont_tes_nombre'),
+        cont_tes_tel_prefix: ($('cont_tes_tel_prefix') || {}).value || '',
+        cont_tes_tel_num: ($('cont_tes_tel_num') || {}).value || '',
+        cont_tes_email: v('cont_tes_email'),
+        cont_cp_nombre: v('cont_cp_nombre'),
+        cont_cp_tel_prefix: ($('cont_cp_tel_prefix') || {}).value || '',
+        cont_cp_tel_num: ($('cont_cp_tel_num') || {}).value || '',
+        cont_cp_email: v('cont_cp_email'),
+        cont_df_nombre: v('cont_df_nombre'),
+        cont_df_tel_prefix: ($('cont_df_tel_prefix') || {}).value || '',
+        cont_df_tel_num: ($('cont_df_tel_num') || {}).value || '',
+        cont_df_email: v('cont_df_email'),
+        cont_com_nombre: v('cont_com_nombre'),
+        cont_com_tel_prefix: ($('cont_com_tel_prefix') || {}).value || '',
+        cont_com_tel_num: ($('cont_com_tel_num') || {}).value || '',
+        cont_com_email: v('cont_com_email'),
+        fact_fecha_corte: v('fact_fecha_corte'),
+        fact_docs_req: v('fact_docs_req'),
+        fact_inscripcion: (() => {
+          const si = $('inscr_si'); const no = $('inscr_no');
+          if (si && si.checked) return 'SI';
+          if (no && no.checked) return 'NO';
+          return '';
+        })(),
+        fact_email: v('fact_email'),
+        fact_email_cc: v('fact_email_cc'),
+        observaciones: v('observaciones'),
+        es_filial: ($('es_filial') || {}).checked === true ? 'SI' : 'NO',
+        filial_razon_social: v('filial_razon_social'),
+        filial_nit: v('filial_nit'),
+        vigencias: Object.assign({}, STATE.vigencias || {}),
+        savedAt: new Date().toISOString()
+      };
+      _draftStorage.set(DRAFT_KEY, JSON.stringify(draft));
+    } catch (e) {
+      console.warn('Draft save error:', e);
+    }
+  }
+
+  function draftLoad() {
+    try {
+      const raw = _draftStorage.get(DRAFT_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function draftClear() {
+    _draftStorage.remove(DRAFT_KEY);
+  }
+
+  function draftRestore(draft) {
+    if (!draft) return;
+    const set = (id, val) => { const el = $(id); if (el && val !== undefined) el.value = val; };
+
+    if (draft.tipo_solicitud) {
+      const h = $('tipo_solicitud');
+      if (h) h.value = draft.tipo_solicitud;
+      const card = document.querySelector(`#tipoSolicitudGrid .tipo-card[data-code="${draft.tipo_solicitud}"]`);
+      if (card) {
+        document.querySelectorAll('#tipoSolicitudGrid .tipo-card').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+        const radio = card.querySelector('input[type="radio"]');
+        if (radio) radio.checked = true;
+      }
+    }
+
+    if (draft.selectedCentros && draft.selectedCentros.length) {
+      STATE.selectedCentros = draft.selectedCentros;
+      draft.selectedCentros.forEach(h => {
+        const item = document.querySelector(`#hci_${h.codigo}`);
+        if (item) item.classList.add('checked');
+      });
+      const hiddenEl = $('centro_codigo');
+      if (hiddenEl) hiddenEl.value = STATE.selectedCentros.map(h => h.codigo).join(',');
+      renderCentroTags();
+      const btnNoneRestore = $('btnDeselectAllCentros');
+      if (btnNoneRestore) btnNoneRestore.style.display = STATE.selectedCentros.length > 0 ? '' : 'none';
+    }
+
+    set('razon_social', draft.razon_social);
+    set('nombre_comercial', draft.nombre_comercial);
+    set('nit', draft.nit);
+    set('direccion', draft.direccion);
+    set('ciudad', draft.ciudad);
+    set('departamento', draft.departamento);
+    set('cod_postal', draft.cod_postal);
+    set('nombre_rep_legal', draft.nombre_rep_legal);
+    set('num_id_rep', draft.num_id_rep);
+    set('cargo_rep', draft.cargo_rep);
+    set('correo_rep', draft.correo_rep);
+    set('ejecutivo_cuenta', draft.ejecutivo_cuenta);
+    if (draft.ejecutivo_cuenta) {
+      const cselVal = $('csel_ejecutivo_val');
+      const subVal = $('csel_ejecutivo_val_sub');
+      if (STATE.catalogos && STATE.catalogos.comerciales) {
+        const found = STATE.catalogos.comerciales.find(x => x.correo === draft.ejecutivo_cuenta);
+        if (found) {
+          if (cselVal) cselVal.textContent = `${found.nombre} ${found.apellido}`.trim();
+          if (subVal) subVal.textContent = found.correo;
+        } else {
+          if (cselVal) cselVal.textContent = draft.ejecutivo_cuenta;
+        }
+      } else {
+        if (cselVal) cselVal.textContent = draft.ejecutivo_cuenta;
+      }
+    }
+
+    if (draft.tipo_id_rep) {
+      const h = $('tipo_id_rep');
+      if (h) h.value = draft.tipo_id_rep;
+      const val = $('csel_tipo_id_val');
+      const opts = { CC: 'Cédula de ciudadanía', CE: 'Cédula de extranjería', NIT: 'NIT', PASAPORT: 'Pasaporte' };
+      if (val) val.textContent = opts[draft.tipo_id_rep] || draft.tipo_id_rep;
+    }
+
+    if (draft.tel_rep_prefix) { const el = $('tel_rep_prefix'); if (el) el.value = draft.tel_rep_prefix; }
+    if (draft.tel_rep_num) { const el = $('tel_rep_num'); if (el) el.value = draft.tel_rep_num; }
+
+    if (draft.monto) {
+      set('monto', draft.monto);
+      const montoEl = $('monto');
+      if (montoEl) montoEl.dispatchEvent(new Event('input'));
+    }
+
+    if (draft.fiscal && draft.fiscal.length) {
+      document.querySelectorAll('.fiscal-check').forEach(c => {
+        c.checked = draft.fiscal.includes(c.value);
+      });
+      syncFiscalSelectionState();
+      if (draft.fiscalOtroTexto) set('fiscalOtroTexto', draft.fiscalOtroTexto);
+    }
+
+    const contactPrefixes = [
+      ['cont_tes', 'cont_tes_tel_prefix', 'cont_tes_tel_num'],
+      ['cont_cp', 'cont_cp_tel_prefix', 'cont_cp_tel_num'],
+      ['cont_df', 'cont_df_tel_prefix', 'cont_df_tel_num'],
+      ['cont_com', 'cont_com_tel_prefix', 'cont_com_tel_num'],
+    ];
+    contactPrefixes.forEach(([base, prefId, numId]) => {
+      set(base + '_nombre', draft[base + '_nombre']);
+      set(base + '_email', draft[base + '_email']);
+      if (draft[prefId]) { const el = $(prefId); if (el) el.value = draft[prefId]; }
+      if (draft[numId]) { const el = $(numId); if (el) el.value = draft[numId]; }
+    });
+
+    set('fact_fecha_corte', draft.fact_fecha_corte);
+    set('fact_docs_req', draft.fact_docs_req);
+    set('fact_email', draft.fact_email);
+    set('fact_email_cc', draft.fact_email_cc);
+
+    if (draft.fact_inscripcion) {
+      const si = $('inscr_si'); const no = $('inscr_no');
+      if (si) si.checked = draft.fact_inscripcion === 'SI';
+      if (no) no.checked = draft.fact_inscripcion === 'NO';
+    }
+
+    set('observaciones', draft.observaciones);
+
+    if (draft.hasOwnProperty('es_filial')) {
+      const esFilialEl = $('es_filial');
+      if (esFilialEl) {
+        esFilialEl.checked = draft.es_filial === 'SI';
+        const filialFields = document.getElementById('filialFields');
+        if (filialFields) filialFields.style.display = draft.es_filial === 'SI' ? 'grid' : 'none';
+      }
+      set('filial_razon_social', draft.filial_razon_social);
+      set('filial_nit', draft.filial_nit);
+    }
+
+    if (draft.vigencias) {
+      STATE.vigencias = Object.assign({}, draft.vigencias);
+    }
+
+    ['tel_rep', 'cont_tes_tel', 'cont_cp_tel', 'cont_df_tel', 'cont_com_tel'].forEach((hid, i) => {
+      const prefixes = ['tel_rep_prefix', 'cont_tes_tel_prefix', 'cont_cp_tel_prefix', 'cont_df_tel_prefix', 'cont_com_tel_prefix'];
+      const nums = ['tel_rep_num', 'cont_tes_tel_num', 'cont_cp_tel_num', 'cont_df_tel_num', 'cont_com_tel_num'];
+      const p = ($(prefixes[i]) || {}).value || '+57';
+      const n = ($(nums[i]) || {}).value || '';
+      const h = $(hid); if (h && n) h.value = p + ' ' + n;
+    });
+
+    if (draft.eeffMode === 'CARTA') {
+      STATE._pendingEeffMode = 'CARTA';
+    }
+
+    if (draft.maxStep && draft.maxStep > STATE.maxStep) {
+      STATE.maxStep = draft.maxStep;
+    }
+  }
+
+  function draftShowBanner(draft) {
+    const banner = $('draftBanner');
+    if (!banner) return;
+
+    const saved = draft.savedAt
+      ? new Date(draft.savedAt).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })
+      : '';
+
+    // Mostrar skeleton en texto y botones
+    const textEl = $('draftBannerText');
+    if (textEl) textEl.innerHTML = '<span class="sk sk-dark" style="width:180px;height:13px;display:inline-block;border-radius:4px;"></span>';
+
+    const btnsEl = $('draftBannerBtns');
+    if (btnsEl) btnsEl.innerHTML = `
+    <span class="sk sk-dark" style="width:72px;height:30px;display:inline-block;border-radius:7px;"></span>
+    <span class="sk sk-dark" style="width:62px;height:30px;display:inline-block;border-radius:7px;"></span>
+  `;
+
+    banner.style.display = 'flex';
+    banner.style.animation = 'none';
+    requestAnimationFrame(() => { banner.style.animation = 'slideUpToast .3s ease'; });
+
+    if (banner._timeout) clearTimeout(banner._timeout);
+    banner._timeout = setTimeout(() => { banner.style.display = 'none'; }, 60000);
+
+    // Guardar datos para reveal posterior
+    banner._savedText = `Tienes un borrador guardado${saved ? ' · <strong>' + saved + '</strong>' : ''}.`;
+  }
+
+  function draftRestoreAndClose() {
+    const banner = $('draftBanner');
+    if (banner) {
+      clearTimeout(banner._timeout);
+      banner.style.display = 'none';
+    }
+    const draft = draftLoad();
+    if (!draft) return;
+    if (STATE.catalogos) {
+      draftRestore(draft);
+      draftShowToast('Borrador restaurado con éxito');
+    } else {
+      STATE._pendingDraftRestore = true;
+    }
+  }
+
+  function draftShowGuardado() {
+    draftShowToast('Borrador guardado');
+  }
+
+  function draftShowToast(msg) {
+    let toast = $('_draftToast');
+    if (toast) toast.remove();
+
+    toast = document.createElement('div');
+    toast.id = '_draftToast';
+    toast.style.cssText = `
+    position:fixed; bottom:24px; right:24px; z-index:99999;
+    display:flex; align-items:center; gap:10px;
+    background:#194b3f; color:#fff;
+    padding:12px 18px; border-radius:10px;
+    font-family:'Outfit',sans-serif; font-size:13px; font-weight:600;
+    box-shadow:0 8px 24px rgba(0,0,0,.25);
+    border-left:4px solid #d08b43;
+    animation:slideUpToast .25s ease;
+  `;
+    toast.innerHTML = `
+    <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+      <path d="M16.707 5.293a1 1 0 0 1 0 1.414l-8 8a1 1 0 0 1-1.414 0l-4-4a1 1 0 1 1 1.414-1.414L8 12.586l7.293-7.293a1 1 0 0 1 1.414 0z" fill="#d08b43"/>
+    </svg>
+    ${msg}
+  `;
+    document.body.appendChild(toast);
+    setTimeout(() => {
+      toast.style.transition = 'opacity .3s ease';
+      toast.style.opacity = '0';
+      setTimeout(() => toast.remove(), 300);
+    }, 2500);
+  }
+
+  function draftDiscardAndClose() {
+    const banner = $('draftBanner');
+    if (banner) {
+      clearTimeout(banner._timeout);
+      banner.style.display = 'none';
+    }
+    draftClear();
+    draftShowToast('Borrador descartado');
+  }
+
+
+
+  /* ═══════════════════════════════════════
+     PANEL LATERAL: CONSULTAR ESTADO
+     ═══════════════════════════════════════ */
+  function openConsultarPanel() {
+    const overlay = $('statusSidePanelOverlay');
+    const panel = $('statusSidePanel');
+    if (!overlay || !panel) return;
+    
+    overlay.classList.add('open');
+    panel.classList.add('open');
+    document.body.classList.add('no-scroll');
+    
+    const input = $('txtConsultarCodigo');
+    if (input) {
+      input.value = '';
+      input.focus();
+    }
+    
+    const resultContainer = $('statusResultContainer');
+    if (resultContainer) {
+      resultContainer.innerHTML = `
+        <div class="status-empty-state">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:40px; height:40px; margin-bottom:12px; opacity:0.4;">
+            <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <p style="margin:0; font-size:13px; color:var(--text-light);">Ingresa un código de radicado para comenzar.</p>
+        </div>
+      `;
+    }
+  }
+
+  function closeConsultarPanel() {
+    const overlay = $('statusSidePanelOverlay');
+    const panel = $('statusSidePanel');
+    if (overlay) overlay.classList.remove('open');
+    if (panel) panel.classList.remove('open');
+    document.body.classList.remove('no-scroll');
+  }
+
+  function performStatusConsultation() {
+    const input = $('txtConsultarCodigo');
+    const btn = $('btnPerformConsultation');
+    const resultContainer = $('statusResultContainer');
+    if (!input || !btn || !resultContainer) return;
+    
+    const codigo = input.value.trim();
+    if (!codigo) {
+      input.classList.add('input-error');
+      input.focus();
+      return;
+    }
+    input.classList.remove('input-error');
+    
+    btn.disabled = true;
+    btn.textContent = 'Buscando...';
+    resultContainer.innerHTML = `
+      <div class="status-empty-state">
+        <div class="status-loading-spinner"></div>
+        <p style="margin-top:16px; font-size:13.5px; color:var(--text2); font-weight: 500;">Buscando información de tu solicitud...</p>
+      </div>
+    `;
+    
+    google.script.run
+      .withSuccessHandler(res => {
+        btn.disabled = false;
+        btn.textContent = 'Buscar';
+        
+        if (!res.success) {
+          resultContainer.innerHTML = `
+            <div class="status-error-box">
+              <svg viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+              </svg>
+              <span>${res.message}</span>
+            </div>
+          `;
+          return;
+        }
+        
+        const friendlyStates = {
+          'BORRADOR': 'Borrador',
+          'PENDIENTE': 'Pendiente de revisión',
+          'PENDIENTE_REVISION': 'Pendiente de revisión',
+          'EN_ANALISIS': 'En análisis',
+          'OBSERVADA': 'Observada',
+          'APROBADA': 'Aprobada',
+          'RECHAZADA': 'Rechazada'
+        };
+        const badgeClasses = {
+          'BORRADOR': 'badge-borrador',
+          'PENDIENTE': 'badge-pendiente',
+          'PENDIENTE_REVISION': 'badge-pendiente',
+          'EN_ANALISIS': 'badge-observada',
+          'OBSERVADA': 'badge-observada',
+          'APROBADA': 'badge-aprobada',
+          'RECHAZADA': 'badge-rechazada'
+        };
+        
+        const stateFriendly = friendlyStates[res.estado] || res.estado;
+        const badgeClass = badgeClasses[res.estado] || 'badge-pendiente';
+        
+        let commentsHtml = '';
+        if (res.comentarios) {
+          commentsHtml = `
+            <div class="status-comments-box">
+              <div class="status-comments-title">Observaciones de Crédito:</div>
+              <div>${res.comentarios}</div>
+            </div>
+          `;
+        }
+        
+        let dateHtml = '';
+        if (res.fecha_envio) {
+          try {
+            const dateObj = new Date(res.fecha_envio);
+            dateHtml = `
+            <div class="status-info-row">
+              <span class="status-info-label">Fecha de envío:</span>
+              <span class="status-info-value">${dateObj.toLocaleDateString('es-CO', {dateStyle: 'medium'})}</span>
+            </div>
+            `;
+          } catch(e) {}
+        }
+        
+        resultContainer.innerHTML = `
+          <div class="status-card">
+            <div class="status-card-header">
+              <div class="status-card-title">${res.razon_social}</div>
+              <div class="status-card-subtitle">Radicado: ${res.codigo}</div>
+            </div>
+            
+            <div class="status-info-row">
+              <span class="status-info-label">Estado:</span>
+              <span class="status-badge ${badgeClass}">${stateFriendly}</span>
+            </div>
+            
+            ${dateHtml}
+            
+            ${commentsHtml}
+          </div>
+        `;
+      })
+      .withFailureHandler(err => {
+        btn.disabled = false;
+        btn.textContent = 'Buscar';
+        resultContainer.innerHTML = `
+          <div class="status-error-box">
+            <svg viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+            </svg>
+            <span>Error de comunicación. Intenta nuevamente.</span>
+          </div>
+        `;
+      })
+      .apiGetSolicitudStatusByCodigo(codigo);
+  }
+</script>

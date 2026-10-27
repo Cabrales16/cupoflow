@@ -1,0 +1,485 @@
+<script>
+/* ─────────────────────────────────────────────────────────────────────────
+   JS_Usuarios.html — Lógica frontend para gestión de usuarios y accesos
+   CupoFlow · Panel de Control y Administración - Solicitud de Créditos
+   ───────────────────────────────────────────────────────────────────────── */
+
+'use strict';
+
+let STATE_USUARIOS = []; // Caché local de usuarios
+let _firmaEditPendienteBase64 = null; // Firma nueva (base64 sin prefijo) pendiente de guardar
+let _firmaEditEliminarPendiente = false; // true si el usuario pidió quitar la firma actual
+
+/** Carga los usuarios desde la base de datos de GAS y actualiza la UI. */
+function cargarUsuarios() {
+  const token = sessionStorage.getItem('hd_panel_token');
+  if (!token) return;
+
+  hide('usuariosTableWrap');
+  show('usuariosTableSkeleton');
+
+  google.script.run
+    .withSuccessHandler(res => {
+      hide('usuariosTableSkeleton');
+      show('usuariosTableWrap');
+      if (res.ok) {
+        STATE_USUARIOS = res.usuarios || [];
+        renderUsuariosTable(STATE_USUARIOS);
+      } else {
+        showToast('Error al cargar usuarios: ' + (res.error || ''), 'error');
+      }
+    })
+    .withFailureHandler(err => {
+      hide('usuariosTableSkeleton');
+      show('usuariosTableWrap');
+      showToast('Error de red: ' + err.message, 'error');
+    })
+    .apiGetUsuarios(token);
+}
+
+/** Renderiza la tabla de usuarios. */
+function renderUsuariosTable(usuarios) {
+  const tbody = document.getElementById('usuariosTableBody');
+  const countEl = document.getElementById('usuariosResultCount');
+  
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  
+  countEl.textContent = usuarios.length + (usuarios.length === 1 ? ' registro' : ' registros');
+
+  if (usuarios.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:30px; color:var(--muted);">No se encontraron usuarios.</td></tr>';
+    return;
+  }
+
+  usuarios.forEach(u => {
+    const tr = document.createElement('tr');
+    
+    // Nombre
+    const tdNombre = document.createElement('td');
+    tdNombre.innerHTML = `<span class="td-main">${escHtml(u.nombre)}</span>`;
+    tr.appendChild(tdNombre);
+
+    // Correo
+    const tdEmail = document.createElement('td');
+    tdEmail.innerHTML = `<span class="td-mono">${escHtml(u.email)}</span>`;
+    tr.appendChild(tdEmail);
+
+    // Rol (Select interactivo)
+    const tdRol = document.createElement('td');
+    const selectRol = document.createElement('select');
+    selectRol.style.padding = '4px 8px';
+    selectRol.style.borderRadius = 'var(--radius-sm)';
+    selectRol.style.border = '1px solid var(--border)';
+    selectRol.style.background = 'var(--surface)';
+    selectRol.style.color = 'var(--text)';
+    selectRol.style.fontFamily = 'inherit';
+    selectRol.style.outline = 'none';
+
+    const optOperaciones = document.createElement('option');
+    optOperaciones.value = 'CONSULTAS';
+    optOperaciones.textContent = 'CONSULTAS';
+    if (u.rol === 'CONSULTAS' || u.rol === 'OPERACIONES') optOperaciones.selected = true;
+
+    const optAdmin = document.createElement('option');
+    optAdmin.value = 'ADMIN';
+    optAdmin.textContent = 'ADMIN';
+    if (u.rol === 'ADMIN') optAdmin.selected = true;
+
+    selectRol.appendChild(optOperaciones);
+    selectRol.appendChild(optAdmin);
+
+    selectRol.addEventListener('change', () => {
+      actualizarRolUsuario(u.email, selectRol.value);
+    });
+
+    tdRol.appendChild(selectRol);
+    tr.appendChild(tdRol);
+
+    // Estado (Switch o Toggle interactivo)
+    const tdEstado = document.createElement('td');
+    tdEstado.style.textAlign = 'center';
+    
+    const labelSwitch = document.createElement('label');
+    labelSwitch.style.position = 'relative';
+    labelSwitch.style.display = 'inline-block';
+    labelSwitch.style.width = '38px';
+    labelSwitch.style.height = '20px';
+    labelSwitch.style.cursor = 'pointer';
+
+    const inputCheck = document.createElement('input');
+    inputCheck.type = 'checkbox';
+    inputCheck.checked = u.activo;
+    inputCheck.style.opacity = '0';
+    inputCheck.style.width = '0';
+    inputCheck.style.height = '0';
+
+    const spanSlider = document.createElement('span');
+    spanSlider.style.position = 'absolute';
+    spanSlider.style.inset = '0';
+    spanSlider.style.background = u.activo ? 'var(--success)' : 'var(--border2)';
+    spanSlider.style.borderRadius = '20px';
+    spanSlider.style.transition = '0.3s';
+
+    const spanCircle = document.createElement('span');
+    spanCircle.style.position = 'absolute';
+    spanCircle.style.left = u.activo ? '20px' : '3px';
+    spanCircle.style.bottom = '3px';
+    spanCircle.style.width = '14px';
+    spanCircle.style.height = '14px';
+    spanCircle.style.background = '#ffffff';
+    spanCircle.style.borderRadius = '50%';
+    spanCircle.style.transition = '0.3s';
+
+    spanSlider.appendChild(spanCircle);
+    labelSwitch.appendChild(inputCheck);
+    labelSwitch.appendChild(spanSlider);
+
+    inputCheck.addEventListener('change', () => {
+      const isChecked = inputCheck.checked;
+      spanSlider.style.background = isChecked ? 'var(--success)' : 'var(--border2)';
+      spanCircle.style.left = isChecked ? '20px' : '3px';
+      actualizarEstadoUsuario(u.email, isChecked);
+    });
+
+    tdEstado.appendChild(labelSwitch);
+    tr.appendChild(tdEstado);
+
+    // Último acceso
+    const tdLogin = document.createElement('td');
+    tdLogin.className = 'td-muted';
+    tdLogin.style.fontSize = '12px';
+    tdLogin.textContent = u.ultimo_login ? formatFecha(u.ultimo_login) + ' ' + String(u.ultimo_login).slice(11, 16) : '—';
+    tr.appendChild(tdLogin);
+
+    // Acciones (Editar y Eliminar)
+    const tdAcciones = document.createElement('td');
+    tdAcciones.style.textAlign = 'center';
+
+    const divActions = document.createElement('div');
+    divActions.style.display = 'flex';
+    divActions.style.gap = '8px';
+    divActions.style.justifyContent = 'center';
+
+    // Botón Editar
+    const btnEdit = document.createElement('button');
+    btnEdit.className = 'btn-action btn-edit';
+    btnEdit.title = 'Editar';
+    btnEdit.style.color = 'var(--gold)';
+    btnEdit.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 20h9"/>
+        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+      </svg>
+    `;
+    btnEdit.addEventListener('click', () => {
+      abrirEditarUsuarioModal(u.email);
+    });
+
+    // Botón Eliminar
+    const btnDel = document.createElement('button');
+    btnDel.className = 'btn-action btn-del';
+    btnDel.title = 'Eliminar';
+    btnDel.style.color = 'var(--danger)';
+    btnDel.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="3 6 5 6 21 6"/>
+        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+        <line x1="10" y1="11" x2="10" y2="17"/>
+        <line x1="14" y1="11" x2="14" y2="17"/>
+      </svg>
+    `;
+    btnDel.addEventListener('click', () => {
+      confirmarEliminarUsuario(u.email, u.nombre);
+    });
+
+    divActions.appendChild(btnEdit);
+    divActions.appendChild(btnDel);
+    tdAcciones.appendChild(divActions);
+    tr.appendChild(tdAcciones);
+
+    tbody.appendChild(tr);
+  });
+}
+
+/** Filtra la lista de usuarios según el término ingresado. */
+function filtrarUsuariosFrontend() {
+  const query = document.getElementById('usuariosSearchInput').value.trim().toLowerCase();
+  if (!query) {
+    renderUsuariosTable(STATE_USUARIOS);
+    return;
+  }
+  const filtrados = STATE_USUARIOS.filter(u =>
+    u.nombre.toLowerCase().includes(query) ||
+    u.email.toLowerCase().includes(query)
+  );
+  renderUsuariosTable(filtrados);
+}
+
+/** Envía el cambio de estado activo/inactivo a GAS. */
+function actualizarEstadoUsuario(email, activo) {
+  const token = sessionStorage.getItem('hd_panel_token');
+  if (!token) return;
+
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res.ok) {
+        showToast(`Usuario ${activo ? 'activado' : 'desactivado'} con éxito.`, 'success');
+        // Actualizar caché local
+        const u = STATE_USUARIOS.find(x => x.email === email);
+        if (u) u.activo = activo;
+      } else {
+        showToast('Error al actualizar estado: ' + (res.error || ''), 'error');
+        cargarUsuarios(); // Recargar para restaurar estado visual correcto
+      }
+    })
+    .withFailureHandler(err => {
+      showToast('Error de red: ' + err.message, 'error');
+      cargarUsuarios();
+    })
+    .apiToggleUsuario({ token, email, activo });
+}
+
+/** Envía el cambio de rol a GAS. */
+function actualizarRolUsuario(email, rol) {
+  const token = sessionStorage.getItem('hd_panel_token');
+  if (!token) return;
+
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res.ok) {
+        showToast(`Rol del usuario actualizado a ${rol} con éxito.`, 'success');
+        const u = STATE_USUARIOS.find(x => x.email === email);
+        if (u) u.rol = rol;
+      } else {
+        showToast('Error al actualizar rol: ' + (res.error || ''), 'error');
+        cargarUsuarios();
+      }
+    })
+    .withFailureHandler(err => {
+      showToast('Error de red: ' + err.message, 'error');
+      cargarUsuarios();
+    })
+    .apiToggleUsuario({ token, email, rol });
+}
+
+// ─── Modal de Creación de Usuarios ──────────────────────────────────────────────
+
+let _firmaNuevoUsuarioBase64 = null; // Firma (base64 sin prefijo) elegida en el modal de creación
+
+function abrirCrearUsuarioModal() {
+  document.getElementById('crearUsuarioForm').reset();
+  _firmaNuevoUsuarioBase64 = null;
+  rmCls('modalCrearUsuario', 'hidden');
+}
+
+function cerrarCrearUsuarioModal() {
+  addCls('modalCrearUsuario', 'hidden');
+  _firmaNuevoUsuarioBase64 = null;
+}
+
+/** Lee el PNG elegido para el nuevo usuario y lo deja listo (en base64) para guardarNuevoUsuario. */
+function previsualizarFirmaNuevoUsuario(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+
+  if (file.type !== 'image/png') {
+    showToast('La firma debe ser una imagen PNG.', 'error');
+    input.value = '';
+    return;
+  }
+  if (file.size > 1024 * 1024) {
+    showToast('La imagen de firma no debe superar 1 MB.', 'error');
+    input.value = '';
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    _firmaNuevoUsuarioBase64 = reader.result.split(',')[1] || '';
+  };
+  reader.readAsDataURL(file);
+}
+
+function guardarNuevoUsuario() {
+  const token    = sessionStorage.getItem('hd_panel_token');
+  const nombre   = document.getElementById('mUserNombre').value.trim();
+  const email    = document.getElementById('mUserEmail').value.trim();
+  const password = document.getElementById('mUserPassword').value.trim();
+  const rol      = document.getElementById('mUserRol').value;
+
+  if (!nombre || !email || !password || !rol) {
+    showToast('Por favor completa todos los campos del formulario.', 'error');
+    return;
+  }
+
+  showLoading();
+  google.script.run
+    .withSuccessHandler(res => {
+      hideLoading();
+      if (res.ok) {
+        showToast('Usuario registrado con éxito en el sistema.', 'success');
+        cerrarCrearUsuarioModal();
+        cargarUsuarios(); // Refrescar la tabla
+      } else {
+        showToast('Error: ' + (res.error || 'No se pudo crear el usuario.'), 'error');
+      }
+    })
+    .withFailureHandler(err => {
+      hideLoading();
+      showToast('Error de red al registrar usuario: ' + err.message, 'error');
+    })
+    .apiCrearUsuario({ token, email, nombre, password, rol, firmaBase64: _firmaNuevoUsuarioBase64 || undefined });
+}
+
+// ─── Modal de Edición de Usuarios ──────────────────────────────────────────────
+
+function abrirEditarUsuarioModal(email) {
+  const u = STATE_USUARIOS.find(x => x.email === email);
+  if (!u) {
+    showToast('Usuario no encontrado en el sistema.', 'error');
+    return;
+  }
+
+  document.getElementById('editarUsuarioForm').reset();
+
+  // Rellenar campos
+  document.getElementById('mEditUserEmailOriginal').value = u.email;
+  document.getElementById('mEditUserNombre').value = u.nombre;
+  document.getElementById('mEditUserEmail').value = u.email;
+  document.getElementById('mEditUserRol').value = u.rol === 'OPERACIONES' ? 'CONSULTAS' : u.rol;
+  document.getElementById('mEditUserPassword').value = '';
+
+  // Estado de firma
+  _firmaEditPendienteBase64 = null;
+  _firmaEditEliminarPendiente = false;
+  const preview = document.getElementById('mEditUserFirmaPreview');
+  if (u.firmaUrl) {
+    preview.src = u.firmaUrl;
+    rmCls('mEditUserFirmaPreviewWrap', 'hidden');
+  } else {
+    preview.src = '';
+    addCls('mEditUserFirmaPreviewWrap', 'hidden');
+  }
+
+  rmCls('modalEditarUsuario', 'hidden');
+}
+
+function cerrarEditarUsuarioModal() {
+  addCls('modalEditarUsuario', 'hidden');
+  _firmaEditPendienteBase64 = null;
+  _firmaEditEliminarPendiente = false;
+}
+
+/** Lee el PNG elegido, lo previsualiza y lo deja listo (en base64) para guardarUsuario. */
+function previsualizarFirmaUsuario(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+
+  if (file.type !== 'image/png') {
+    showToast('La firma debe ser una imagen PNG.', 'error');
+    input.value = '';
+    return;
+  }
+  if (file.size > 1024 * 1024) {
+    showToast('La imagen de firma no debe superar 1 MB.', 'error');
+    input.value = '';
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    const dataUrl = reader.result; // data:image/png;base64,AAAA...
+    _firmaEditPendienteBase64 = dataUrl.split(',')[1] || '';
+    _firmaEditEliminarPendiente = false;
+    document.getElementById('mEditUserFirmaPreview').src = dataUrl;
+    rmCls('mEditUserFirmaPreviewWrap', 'hidden');
+  };
+  reader.readAsDataURL(file);
+}
+
+/** Marca la firma actual del usuario para ser eliminada al guardar. */
+function eliminarFirmaUsuarioSeleccionado() {
+  _firmaEditPendienteBase64 = null;
+  _firmaEditEliminarPendiente = true;
+  document.getElementById('mEditUserFirmaPreview').src = '';
+  document.getElementById('mEditUserFirmaInput').value = '';
+  addCls('mEditUserFirmaPreviewWrap', 'hidden');
+}
+
+function guardarEdicionUsuario() {
+  const token         = sessionStorage.getItem('hd_panel_token');
+  const emailOriginal = document.getElementById('mEditUserEmailOriginal').value;
+  const nombre        = document.getElementById('mEditUserNombre').value.trim();
+  const email         = document.getElementById('mEditUserEmail').value.trim();
+  const password      = document.getElementById('mEditUserPassword').value.trim();
+  const rol           = document.getElementById('mEditUserRol').value;
+
+  if (!emailOriginal || !nombre || !email || !rol) {
+    showToast('Por favor completa todos los campos del formulario.', 'error');
+    return;
+  }
+
+  showLoading();
+  google.script.run
+    .withSuccessHandler(res => {
+      hideLoading();
+      if (res.ok) {
+        showToast('Usuario actualizado con éxito.', 'success');
+        cerrarEditarUsuarioModal();
+        cargarUsuarios(); // Refrescar la tabla
+      } else {
+        showToast('Error: ' + (res.error || 'No se pudo actualizar el usuario.'), 'error');
+      }
+    })
+    .withFailureHandler(err => {
+      hideLoading();
+      showToast('Error de red al actualizar usuario: ' + err.message, 'error');
+    })
+    .apiEditarUsuario({
+      token,
+      emailOriginal,
+      nuevosDatos: {
+        email, nombre, password, rol,
+        firmaBase64  : _firmaEditPendienteBase64 || undefined,
+        eliminarFirma: _firmaEditEliminarPendiente
+      }
+    });
+}
+
+// ─── Eliminación de Usuarios ────────────────────────────────────────────────────
+
+function confirmarEliminarUsuario(email, nombre) {
+  mostrarModalConfirmacion({
+    titulo         : 'Eliminar usuario',
+    mensaje        : `¿Estás seguro de eliminar permanentemente al usuario <strong>${escHtml(nombre)}</strong> (${escHtml(email)})? Esta acción no se puede deshacer.`,
+    btnAceptarText : 'Sí, eliminar',
+    colorTheme     : 'danger',
+    isLg           : false,
+    onAceptar      : () => eliminarUsuario(email)
+  });
+}
+
+function eliminarUsuario(email) {
+  cerrarModalConfirm();
+  const token = sessionStorage.getItem('hd_panel_token');
+  if (!token) return;
+
+  showLoading();
+  google.script.run
+    .withSuccessHandler(res => {
+      hideLoading();
+      if (res.ok) {
+        showToast('Usuario eliminado correctamente del sistema.', 'success');
+        cargarUsuarios(); // Refrescar la tabla
+      } else {
+        showToast('Error al eliminar: ' + (res.error || ''), 'error');
+      }
+    })
+    .withFailureHandler(err => {
+      hideLoading();
+      showToast('Error de red: ' + err.message, 'error');
+    })
+    .apiEliminarUsuario({ token, email });
+}
+</script>

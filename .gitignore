@@ -1,0 +1,24 @@
+# Dependencias y artefactos
+node_modules/
+/site/
+tools/e2e/.tmp/
+*.log
+
+# Sensibles (nunca subir)
+.env
+.env.*
+*.pem
+*.key
+*.p12
+.clasprc.json
+.clasp.json
+creds*.json
+credentials*.json
+service-account*.json
+secrets*/
+*.xlsx
+*.csv
+*.sql
+*.bak
+backups/
+docs-privados/

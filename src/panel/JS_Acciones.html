@@ -1,0 +1,561 @@
+<script>
+/* ─────────────────────────────────────────────────────────────────────────
+   JS_Acciones.html — Flujo de aprobación y rechazo de solicitudes
+   CupoFlow · Panel de Control y Administración - Solicitud de Créditos
+   ───────────────────────────────────────────────────────────────────────── */
+
+// ─── Modal de confirmación ────────────────────────────────────────────────────
+
+/**
+ * Abre el modal de confirmación configurado para la acción indicada.
+ * Si es APROBADA, carga los detalles dinámicos antes de mostrarlo.
+ *
+ * @param {string} accion - 'APROBADA' | 'RECHAZADA TEMPORALMENTE' | 'EN_REVISION'
+ */
+function confirmarAccion(accion) {
+  STATE.accionConfirm = accion;
+  const isApproval    = accion === 'APROBADA';
+  const uuid          = STATE.expedienteActual;
+  const token         = STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '';
+
+  if (isApproval) {
+    PROCESS_LOADER.show("Preparando Aprobación", ["Obteniendo detalles de la solicitud..."], false);
+    google.script.run
+      .withSuccessHandler(data => {
+        PROCESS_LOADER.hide();
+        
+        // Configurar valores por defecto en el modal
+        document.getElementById('confirmEnviarCarta').checked = true;
+        toggleEnviarCartaSeccion(true);
+        
+        document.getElementById('confirmCorreoRep').value = data.correo_rep || '';
+        document.getElementById('confirmCorreoEjecutivo').value = data.correo_ejecutivo || '';
+        
+        // Mostrar monto solicitado por el cliente
+        const solicitadoTextoEl = document.getElementById('confirmMontoSolicitadoTexto');
+        if (solicitadoTextoEl) {
+          solicitadoTextoEl.textContent = formatMoney(data.monto, data.moneda) + ' ' + (data.moneda || 'COP');
+        }
+
+        document.getElementById('confirmMoneda').textContent = data.moneda || 'COP';
+        
+        // Reiniciar Aceptado por al valor por defecto
+        const selectAceptado = document.getElementById('confirmAceptadoPor');
+        if (selectAceptado) selectAceptado.value = 'Area de credito y cartera';
+
+        // Guardar la data para validación
+        STATE.aprobacionData = data;
+
+        // Renderizar campos de centros
+        const distContainer = document.getElementById('confirmCentrosDistribucion');
+        distContainer.innerHTML = '';
+
+        if (data.centros_seleccionados && data.centros_seleccionados.length > 0) {
+          data.centros_seleccionados.forEach((h, index) => {
+            // Usar monto_minimo del centro por defecto
+            const minimo   = h.monto_minimo || 5000000;
+            const sugerido = minimo;
+            
+            const row = document.createElement('div');
+            row.style.display = 'flex';
+            row.style.alignItems = 'center';
+            row.style.justifyContent = 'space-between';
+            row.style.gap = '16px';
+            row.style.padding = '10px 14px';
+            row.style.background = 'var(--surface)';
+            row.style.border = '1px solid var(--border)';
+            row.style.borderRadius = 'var(--radius)';
+            row.style.boxShadow = 'var(--shadow-sm)';
+
+            const label = document.createElement('div');
+            label.style.display = 'flex';
+            label.style.flexDirection = 'column';
+            label.style.textAlign = 'left';
+            label.style.flex = '1';
+
+            const centroName = document.createElement('span');
+            centroName.style.fontSize = '14px';
+            centroName.style.fontWeight = '700';
+            centroName.style.color = 'var(--text)';
+            centroName.textContent = `${h.codigo} - ${h.nombre || h.razon || 'Centro'}`;
+
+            const centroMeta = document.createElement('span');
+            centroMeta.style.fontSize = '11px';
+            centroMeta.style.color = 'var(--muted)';
+            centroMeta.style.marginTop = '2px';
+            const minimoFmt = (h.monto_minimo || 5000000).toLocaleString('es-CO');
+            centroMeta.innerHTML = `Operaciones: ${h.correo_operaciones || 'Sin correo'} &nbsp;·&nbsp; Mínimo: <strong>${data.moneda || 'COP'} ${minimoFmt}</strong>`;
+
+            label.appendChild(centroName);
+            label.appendChild(centroMeta);
+
+            const inputWrapper = document.createElement('div');
+            inputWrapper.style.display = 'flex';
+            inputWrapper.style.alignItems = 'center';
+            inputWrapper.style.border = '1px solid var(--border2)';
+            inputWrapper.style.borderRadius = '6px';
+            inputWrapper.style.background = 'var(--surface2)';
+            inputWrapper.style.padding = '4px 8px';
+            inputWrapper.style.width = '150px';
+
+            const currencySign = document.createElement('span');
+            currencySign.style.fontSize = '11px';
+            currencySign.style.fontWeight = '600';
+            currencySign.style.color = 'var(--muted)';
+            currencySign.style.marginRight = '4px';
+            currencySign.textContent = data.moneda || 'COP';
+
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'confirm-cupo-input';
+            input.dataset.codigo      = h.codigo;
+            input.dataset.minimo      = h.monto_minimo || 5000000;
+            input.value               = formatNumberWithDots(sugerido);
+            input.style.border        = 'none';
+            input.style.background    = 'transparent';
+            input.style.color         = 'var(--text)';
+            input.style.fontFamily    = "'Outfit', sans-serif";
+            input.style.fontSize      = '13px';
+            input.style.fontWeight    = '600';
+            input.style.textAlign     = 'right';
+            input.style.width         = '100%';
+            input.style.outline       = 'none';
+
+            setupDynamicNumberFormat(input, () => actualizarTotalDistribucion());
+
+            inputWrapper.appendChild(currencySign);
+            inputWrapper.appendChild(input);
+            row.appendChild(label);
+            row.appendChild(inputWrapper);
+            distContainer.appendChild(row);
+          });
+        } else {
+          distContainer.innerHTML = '<div style="font-size:12px; color:var(--muted); text-align:center; padding:10px;">No hay centros seleccionados.</div>';
+        }
+
+        // Mostrar el modal de confirmación en la UI usando la función unificada
+        mostrarModalConfirmacion({
+          titulo: 'Confirmar aprobación',
+          mensaje: '¿Deseas <strong>aprobar</strong> esta solicitud de crédito? La acción generará la carta en PDF y la enviará por correo.',
+          btnAceptarText: 'Sí, aprobar solicitud',
+          colorTheme: 'navy',
+          isLg: true,
+          showComentario: true,
+          cuerpoAdicionalId: 'confirmAprobacionSeccion',
+          onAceptar: () => ejecutarAccionConfirmada()
+        });
+
+        // Calcular total inicial
+        actualizarTotalDistribucion();
+      })
+      .withFailureHandler(err => {
+        PROCESS_LOADER.fail('Error al obtener los detalles de aprobación: ' + err.message);
+      })
+      .apiGetDetallesAprobacion(token, uuid);
+  } else if (accion === 'DEVUELTA') {
+    const textarea = document.getElementById('confirmComentario');
+    if (textarea) {
+      textarea.value = '';
+      textarea.placeholder = 'Especifica qué documentos faltan o requieren actualización (ej: Cámara de Comercio vigente, Cédula del Representante)...';
+    }
+
+    mostrarModalConfirmacion({
+      titulo: 'Devolver solicitud para subsanación',
+      mensaje: '¿Deseas <strong>devolver</strong> esta solicitud? Se enviará un correo con tus observaciones y un botón directo para que el cliente cargue los documentos pendientes.',
+      btnAceptarText: 'Sí, devolver solicitud',
+      colorTheme: 'warning',
+      isLg: false,
+      showComentario: true,
+      onAceptar: () => ejecutarAccionConfirmada()
+    });
+  } else {
+    // Si no es aprobación ni devolución, limpiar comentarios
+    const textarea = document.getElementById('confirmComentario');
+    if (textarea) {
+      textarea.value = '';
+      textarea.placeholder = 'Escribe las razones u observaciones del rechazo...';
+    }
+
+    mostrarModalConfirmacion({
+      titulo: 'Confirmar rechazo',
+      mensaje: '¿Deseas <strong>rechazar</strong> esta solicitud de crédito?',
+      btnAceptarText: 'Sí, rechazar solicitud',
+      colorTheme: 'danger',
+      isLg: false,
+      showComentario: true,
+      onAceptar: () => ejecutarAccionConfirmada()
+    });
+  }
+}
+
+/** Alterna la visibilidad de los detalles de envío de la carta de aprobación. */
+function toggleEnviarCartaSeccion(checked) {
+  const container = document.getElementById('enviarCartaDetalles');
+  if (container) {
+    container.style.display = checked ? 'block' : 'none';
+  }
+  validarSumaDistribucion();
+}
+
+/** Redistribuye según monto mínimo de cada centro, o equitativamente si el total no alcanza. */
+function recalcularDistribucionEquitativa() {
+  const totalMonto = cleanFormattedNumber(document.getElementById('confirmMontoAprobado').value);
+  const inputs = document.querySelectorAll('.confirm-cupo-input');
+  if (inputs.length === 0) return;
+
+  // Sumar mínimos
+  let sumaMinimos = 0;
+  inputs.forEach(input => { sumaMinimos += parseFloat(input.dataset.minimo || 5000000); });
+
+  if (totalMonto >= sumaMinimos) {
+    // Distribuir primero los mínimos, luego repartir el excedente equitativamente
+    const excedente   = totalMonto - sumaMinimos;
+    const porCentro    = Math.floor(excedente / inputs.length);
+    const residuo     = totalMonto - inputs.length * (Math.floor(sumaMinimos / inputs.length) + porCentro);
+    inputs.forEach((input, idx) => {
+      const minimo = parseFloat(input.dataset.minimo || 5000000);
+      input.value  = formatNumberWithDots(minimo + porCentro + (idx === 0 ? residuo : 0));
+    });
+  } else {
+    // Si no alcanza, repartir equitativamente
+    const base    = Math.floor(totalMonto / inputs.length);
+    const residuo = totalMonto - base * inputs.length;
+    inputs.forEach((input, idx) => { input.value = formatNumberWithDots(base + (idx === 0 ? residuo : 0)); });
+  }
+  actualizarTotalDistribucion();
+}
+
+/**
+ * Recalcula el campo 'Monto Total Aprobado' sumando todos los cupos individuales
+ * y muestra feedback visual en tiempo real.
+ */
+function actualizarTotalDistribucion() {
+  const inputs   = document.querySelectorAll('.confirm-cupo-input');
+  const alerta   = document.getElementById('confirmSumaAlerta');
+  const montoEl  = document.getElementById('confirmMontoAprobado');
+  const acceptBtn = document.getElementById('confirmBtnAccept');
+
+  let suma      = 0;
+  let hayMinErr = false;
+  inputs.forEach(input => {
+    const val    = cleanFormattedNumber(input.value);
+    const minimo = parseFloat(input.dataset.minimo || 5000000);
+    suma += val;
+    if (val < minimo) hayMinErr = true;
+  });
+
+  // Actualizar el campo de monto total (refleja la suma)
+  if (montoEl) montoEl.value = formatNumberWithDots(suma);
+
+  if (!alerta) return;
+  alerta.style.display = 'block';
+
+  if (hayMinErr) {
+    alerta.style.background = '#f8d7da';
+    alerta.style.border     = '1px solid #f5c2c7';
+    alerta.style.color      = '#842029';
+    alerta.innerHTML        = '<span style="font-weight:700;margin-right:4px;">[Alerta]</span> Uno o más centros está por debajo del cupo mínimo configurado.';
+    if (acceptBtn) acceptBtn.disabled = false; // no bloquear, solo advertir
+  } else {
+    alerta.style.background = '#d1e7dd';
+    alerta.style.border     = '1px solid #badbcc';
+    alerta.style.color      = '#0f5132';
+    alerta.innerHTML        = `<span style="font-weight:700;margin-right:4px;">[Total]</span> Cupo total asignado: <strong>${suma.toLocaleString('es-CO')} ${(STATE.aprobacionData?.moneda || 'COP')}</strong>`;
+    if (acceptBtn) acceptBtn.disabled = false;
+  }
+}
+
+/** @deprecated — usar actualizarTotalDistribucion */
+function validarSumaDistribucion() {
+  actualizarTotalDistribucion();
+}
+
+/** Cierra el modal de confirmación sin ejecutar ninguna acción. */
+function cerrarModalConfirm() {
+  addCls('modalConfirm', 'hidden');
+  STATE.accionConfirm = null;
+  STATE.aprobacionData = null;
+}
+
+// ─── Ejecución de la acción ───────────────────────────────────────────────────
+
+/**
+ * Ejecuta la acción confirmada (APROBADA, RECHAZADA, etc.) llamando al backend.
+ * Construye el payload completo dependiendo de la acción y valida antes de enviar.
+ */
+function ejecutarAccionConfirmada() {
+  const accion      = STATE.accionConfirm;
+  const uuid        = STATE.expedienteActual;
+  const comentarios = (document.getElementById('confirmComentario')?.value || '').trim();
+
+  if (!accion || !uuid) {
+    showToast('Datos incompletos para ejecutar la acción.', 'error');
+    cerrarModalConfirm();
+    return;
+  }
+
+  let payload = {
+    uuid,
+    accion,
+    comentarios,
+    token: STATE?.authToken || sessionStorage.getItem('hd_panel_token') || ''
+  };
+  let steps = [];
+  let title = "";
+
+  if (accion === 'APROBADA') {
+    title = "Procesando Aprobación";
+    const enviarCarta = document.getElementById('confirmEnviarCarta').checked;
+    payload.enviarCarta = enviarCarta;
+    
+    if (enviarCarta) {
+      const correoRep = (document.getElementById('confirmCorreoRep').value || '').trim();
+      const correoEjecutivo = (document.getElementById('confirmCorreoEjecutivo').value || '').trim();
+      const montoTotalAprobado = cleanFormattedNumber(document.getElementById('confirmMontoAprobado').value);
+
+      if (!correoRep) {
+        showToast('El correo del representante legal es obligatorio.', 'error');
+        return;
+      }
+
+      // Validar formato de correos
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(correoRep)) {
+        showToast('El correo del representante legal no tiene un formato válido.', 'error');
+        return;
+      }
+      if (correoEjecutivo && !emailRegex.test(correoEjecutivo)) {
+        showToast('El correo del ejecutivo comercial no tiene un formato válido.', 'error');
+        return;
+      }
+
+      payload.correoRep = correoRep;
+      payload.correoEjecutivo = correoEjecutivo;
+      payload.montoTotalAprobado = montoTotalAprobado;
+      payload.aceptadoPor = document.getElementById('confirmAceptadoPor').value || 'Area de credito y cartera';
+
+      // Recopilar distribución de cupos
+      const cuposDistribuidos = {};
+      const inputs = document.querySelectorAll('.confirm-cupo-input');
+      inputs.forEach(input => {
+        const codigo = input.dataset.codigo;
+        const val = cleanFormattedNumber(input.value);
+        cuposDistribuidos[codigo] = val;
+      });
+      payload.cuposDistribuidos = cuposDistribuidos;
+
+      steps = [
+        "Validando información de aprobación",
+        "Generando carta de aprobación en PDF",
+        "Buscando documentos del expediente",
+        "Enviando correo formal con adjuntos",
+        "Guardando cambios en base de datos"
+      ];
+    } else {
+      steps = [
+        "Validando información de aprobación",
+        "Guardando cambios en base de datos"
+      ];
+    }
+  } else {
+    const isRechazo  = accion === 'RECHAZADA TEMPORALMENTE';
+    const isDevuelta = accion === 'DEVUELTA';
+    const labelAccion = isDevuelta ? 'Devolución' : (isRechazo ? 'Rechazo' : 'Actualización');
+    title = `Procesando ${labelAccion}`;
+    steps = (isRechazo || isDevuelta) ? [
+      "Validando observaciones y comentarios",
+      "Enviando correo con enlace de subsanación al cliente",
+      "Registrando estado en base de datos"
+    ] : [
+      "Validando observaciones y comentarios",
+      "Registrando decisión en base de datos"
+    ];
+  }
+
+  // Deshabilitar botón de confirmación para evitar doble-click
+  const acceptBtn = document.getElementById('confirmBtnAccept');
+  if (acceptBtn) {
+    acceptBtn.disabled    = true;
+    acceptBtn.textContent = 'Procesando…';
+  }
+
+  // Cerrar el modal de confirmación y abrir el de carga de procesos
+  cerrarModalConfirm();
+  PROCESS_LOADER.show(title, steps, true);
+
+  // Para aprobaciones con carta: generar PDF client-side primero (html2pdf.js → sin márgenes)
+  if (accion === 'APROBADA' && payload.enviarCarta) {
+    _aprobarConPdfClienteSide_(payload, acceptBtn);
+    return;
+  }
+
+  google.script.run
+    .withSuccessHandler(res => {
+      PROCESS_LOADER.complete(() => {
+        let label = 'actualizada';
+        if (accion === 'APROBADA') label = 'aprobada';
+        else if (accion === 'DEVUELTA') label = 'devuelta para subsanación';
+        else if (accion === 'RECHAZADA TEMPORALMENTE') label = 'rechazada';
+        showToast(
+          'Solicitud ' + label + ' correctamente: ' + (res.codigo_solicitud || ''),
+          'success'
+        );
+        cerrarModalExp();
+        _refrescarDespuesDeAccion();
+      });
+    })
+    .withFailureHandler(err => {
+      PROCESS_LOADER.fail(err.message);
+      if (acceptBtn) {
+        acceptBtn.disabled    = false;
+        acceptBtn.textContent = 'Confirmar';
+      }
+    })
+    .apiActualizarEstado(payload);
+}
+
+/**
+ * Flujo de aprobación con PDF generado client-side usando html2pdf.js.
+ * 1. Obtiene el HTML de la carta desde el servidor
+ * 2. Renderiza cada página .page por separado (evita offsets de -9999px que amplían el canvas)
+ * 3. Envía el PDF como base64 junto con la aprobación al servidor
+ */
+function _aprobarConPdfClienteSide_(payload, acceptBtn) {
+  google.script.run
+    .withSuccessHandler(function(htmlResult) {
+      if (!htmlResult || !htmlResult.ok) {
+        PROCESS_LOADER.fail((htmlResult && htmlResult.error) || 'Error al obtener HTML de la carta.');
+        if (acceptBtn) { acceptBtn.disabled = false; acceptBtn.textContent = 'Confirmar'; }
+        return;
+      }
+
+      // Extraer <style> y cada .page del fragmento HTML
+      var tmpDiv = document.createElement('div');
+      tmpDiv.innerHTML = htmlResult.html;
+      var styleText = (tmpDiv.querySelector('style') || {textContent:''}).textContent;
+      var pageEls   = Array.from(tmpDiv.querySelectorAll('.page'));
+
+      if (pageEls.length === 0) {
+        PROCESS_LOADER.fail('Error interno: el HTML no contiene páginas.');
+        if (acceptBtn) { acceptBtn.disabled = false; acceptBtn.textContent = 'Confirmar'; }
+        return;
+      }
+
+      var canvases = [];
+
+      // Cada página se renderiza en su propio iframe aislado (816×1056 px).
+      // Esto elimina toda interferencia del CSS/layout del panel con html2canvas.
+      function renderPage(idx) {
+        if (idx >= pageEls.length) { buildAndSendPdf(); return; }
+
+        var iframe = document.createElement('iframe');
+        // Visible en pantalla pero cubierto por PROCESS_LOADER (z-index alto)
+        iframe.style.cssText = 'position:fixed;top:0;left:0;width:816px;height:1056px;border:none;z-index:1;';
+
+        var fullHtml =
+          '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+          '<style>*{margin:0;padding:0;box-sizing:border-box;}' +
+          'html,body{width:816px;height:1056px;overflow:hidden;background:#fff;}</style>' +
+          '<style>' + styleText + '</style>' +
+          '</head><body>' + pageEls[idx].outerHTML + '</body></html>';
+
+        iframe.setAttribute('srcdoc', fullHtml);
+        document.body.appendChild(iframe);
+
+        iframe.onload = function() {
+          // Pequeño delay para que el browser aplique estilos y pinte el iframe
+          setTimeout(function() {
+            var pageEl = iframe.contentDocument.querySelector('.page') || iframe.contentDocument.body;
+            html2canvas(pageEl, {
+              scale       : 2,
+              useCORS     : true,
+              logging     : false,
+              windowWidth : 816,
+              windowHeight: 1056,
+              scrollX     : 0,
+              scrollY     : 0
+            }).then(function(canvas) {
+              document.body.removeChild(iframe);
+              canvases.push(canvas);
+              renderPage(idx + 1);
+            }).catch(function(e) {
+              if (iframe.parentNode) document.body.removeChild(iframe);
+              PROCESS_LOADER.fail('Error renderizando página ' + (idx+1) + ': ' + (e.message||e));
+              if (acceptBtn) { acceptBtn.disabled = false; acceptBtn.textContent = 'Confirmar'; }
+            });
+          }, 250);
+        };
+      }
+
+      function buildAndSendPdf() {
+        try {
+          // jsPDF disponible como window.jspdf.jsPDF (script cargado en Index.html)
+          var jsPDFCtor = window.jspdf && window.jspdf.jsPDF;
+          if (!jsPDFCtor) throw new Error('jsPDF no disponible — revisar CDN en Index.html');
+
+          var doc = new jsPDFCtor({ unit:'pt', format:'letter', orientation:'portrait' });
+          canvases.forEach(function(canvas, i) {
+            if (i > 0) doc.addPage();
+            // Posición y tamaño explícitos: ocupa exactamente la hoja carta (612×792 pt)
+            doc.addImage(canvas.toDataURL('image/jpeg', 0.97), 'JPEG', 0, 0, 612, 792);
+          });
+
+          var buffer = doc.output('arraybuffer');
+          var bytes  = new Uint8Array(buffer);
+          var binary = '';
+          for (var j = 0; j < bytes.byteLength; j++) binary += String.fromCharCode(bytes[j]);
+          payload.pdfCartaBase64 = btoa(binary);
+          payload.pdfCartaNombre = htmlResult.pdfName;
+
+          google.script.run
+            .withSuccessHandler(function(res) {
+              PROCESS_LOADER.complete(function() {
+                showToast('Solicitud aprobada correctamente: ' + (res.codigo_solicitud || ''), 'success');
+                cerrarModalExp();
+                _refrescarDespuesDeAccion();
+              });
+            })
+            .withFailureHandler(function(err) {
+              PROCESS_LOADER.fail(err.message);
+              if (acceptBtn) { acceptBtn.disabled = false; acceptBtn.textContent = 'Confirmar'; }
+            })
+            .apiActualizarEstado(payload);
+        } catch(e) {
+          PROCESS_LOADER.fail('Error al crear PDF: ' + (e.message || e));
+          if (acceptBtn) { acceptBtn.disabled = false; acceptBtn.textContent = 'Confirmar'; }
+        }
+      }
+
+      renderPage(0);
+    })
+    .withFailureHandler(function(err) {
+      PROCESS_LOADER.fail(err.message);
+      if (acceptBtn) { acceptBtn.disabled = false; acceptBtn.textContent = 'Confirmar'; }
+    })
+    .apiGetHtmlCarta({
+      token            : STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '',
+      uuid             : payload.uuid,
+      cuposDistribuidos: payload.cuposDistribuidos,
+      aceptadoPor      : payload.aceptadoPor
+    });
+}
+
+// ─── Helper privado ────────────────────────────────────────────────────────────
+
+/**
+ * Recarga los datos relevantes después de ejecutar una acción sobre una solicitud.
+ * Invalida el cache de solicitudes y recarga la vista activa + KPIs.
+ */
+function _refrescarDespuesDeAccion() {
+  cargarKpis(); // siempre refrescar KPIs
+
+  const activeNav = document.querySelector('.sb-item.active[data-view]');
+  const viewId    = activeNav ? activeNav.dataset.view : 'dashboard';
+
+  if (viewId === 'solicitudes') {
+    cargarSolicitudes();
+  } else {
+    cargarDashboardRecientes();
+  }
+}
+</script>

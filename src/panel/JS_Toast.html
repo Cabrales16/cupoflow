@@ -1,0 +1,113 @@
+<script>
+/* ─────────────────────────────────────────────────────────────────────────
+   JS_Toast.html — Sistema de notificaciones Toast + listeners globales
+   CupoFlow · Panel de Control y Administración - Solicitud de Créditos
+   ───────────────────────────────────────────────────────────────────────── */
+
+// ─── Iconos SVG por tipo de toast ─────────────────────────────────────────────
+const TOAST_ICONS = {
+  success:
+    '<svg class="toast-ico" viewBox="0 0 24 24" fill="none" stroke="var(--success)" ' +
+    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>' +
+      '<polyline points="22 4 12 14.01 9 11.01"/>' +
+    '</svg>',
+
+  error:
+    '<svg class="toast-ico" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" ' +
+    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<circle cx="12" cy="12" r="10"/>' +
+      '<line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>' +
+    '</svg>',
+
+  warning:
+    '<svg class="toast-ico" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" ' +
+    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>' +
+      '<line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>' +
+    '</svg>',
+
+  info:
+    '<svg class="toast-ico" viewBox="0 0 24 24" fill="none" stroke="var(--info)" ' +
+    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<circle cx="12" cy="12" r="10"/>' +
+      '<line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>' +
+    '</svg>'
+};
+
+// ─── API pública ──────────────────────────────────────────────────────────────
+
+/**
+ * Muestra una notificación toast animada en la esquina superior derecha.
+ * Se auto-elimina después de 5 segundos.
+ *
+ * @param {string} msg  - Texto del mensaje a mostrar.
+ * @param {string} tipo - 'success' | 'error' | 'warning' | 'info'
+ */
+function showToast(msg, tipo) {
+  tipo = tipo || 'info';
+  const container = document.getElementById('toastContainer');
+  if (!container) return;
+
+  const toast = document.createElement('div');
+  toast.className = 'toast toast-' + tipo;
+  toast.innerHTML =
+    (TOAST_ICONS[tipo] || '') +
+    '<span class="toast-msg">' + escHtml(msg) + '</span>' +
+    '<button class="toast-close" onclick="dismissToast(this.parentElement)" aria-label="Cerrar">×</button>';
+
+  container.appendChild(toast);
+  setTimeout(() => dismissToast(toast), 5000);
+}
+
+/**
+ * Descarta un toast con animación de salida.
+ * @param {HTMLElement} el - El elemento del toast a descartar.
+ */
+function dismissToast(el) {
+  if (!el || !el.parentElement) return;
+  el.classList.add('dismissing');
+  setTimeout(() => { if (el.parentElement) el.parentElement.removeChild(el); }, 220);
+}
+
+// ─── Listeners globales ───────────────────────────────────────────────────────
+
+/**
+ * Click en el overlay del modal de expediente → cerrar modal.
+ */
+document.addEventListener('click', e => {
+  const overlayExp   = document.getElementById('modalExpediente');
+  const overlayConf  = document.getElementById('modalConfirm');
+  const overlayConfig = document.getElementById('modalConfiguracion');
+  const overlayCentro  = document.getElementById('modalCentroDetalle');
+  const overlayCreditoDetalle = document.getElementById('modalCreditoDetalle');
+  const overlayCrud = document.getElementById('modalCrud');
+  
+  if (overlayExp  && e.target === overlayExp)  cerrarModalExp();
+  if (overlayConf && e.target === overlayConf) cerrarModalConfirm();
+  if (overlayConfig && e.target === overlayConfig) cerrarConfigFormModal();
+  if (overlayCentro && e.target === overlayCentro) cerrarModalCentro();
+  if (overlayCreditoDetalle && e.target === overlayCreditoDetalle) cerrarModalCreditoDetalle();
+  if (overlayCrud && e.target === overlayCrud) cerrarModalCrud();
+});
+
+/**
+ * Tecla Escape → cerrar el modal más reciente (confirmación primero, luego catálogos, luego centro, luego expediente).
+ */
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  const conf   = document.getElementById('modalConfirm');
+  const config = document.getElementById('modalConfiguracion');
+  const centro  = document.getElementById('modalCentroDetalle');
+  const exp    = document.getElementById('modalExpediente');
+  const credDet = document.getElementById('modalCreditoDetalle');
+  const crud   = document.getElementById('modalCrud');
+  
+  if (conf && !conf.classList.contains('hidden')) { cerrarModalConfirm(); return; }
+  if (crud && !crud.classList.contains('hidden')) { cerrarModalCrud(); return; }
+  if (config && !config.classList.contains('hidden')) { cerrarConfigFormModal(); return; }
+  if (centro && !centro.classList.contains('hidden')) { cerrarModalCentro(); return; }
+  if (credDet && !credDet.classList.contains('hidden')) { cerrarModalCreditoDetalle(); return; }
+  if (exp  && !exp.classList.contains('hidden'))  cerrarModalExp();
+});
+</script>

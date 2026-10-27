@@ -1,0 +1,802 @@
+<script>
+/* ─────────────────────────────────────────────────────────────────────────
+   JS_Dashboard.html — KPI cards y tabla de solicitudes recientes
+   CupoFlow · Panel de Control y Administración - Solicitud de Créditos
+   ───────────────────────────────────────────────────────────────────────── */
+
+// ─── KPI Cards ────────────────────────────────────────────────────────────────
+
+/**
+ * Solicita los KPIs y solicitudes recientes del dashboard de manera combinada en una sola llamada.
+ */
+function cargarDashboard(force) {
+  const token = STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '';
+  if (!STATE.periodo) {
+    STATE.periodo = { type: 'ESTE_MES' };
+  }
+  
+  if (!force && STATE.kpis && STATE.recientes && 
+      STATE.lastPeriodoType === STATE.periodo.type && 
+      STATE.lastPeriodoInicio === STATE.periodo.inicio && 
+      STATE.lastPeriodoFin === STATE.periodo.fin) {
+    renderKpis(STATE.kpis);
+    renderTablaResumen(STATE.recientes);
+    renderActividadReciente(STATE.recientes);
+    return;
+  }
+  
+  hide('tablaDashboard');
+  show('tablaDashboardSkeleton');
+  hide('chartEstados');
+  show('chartEstadosSkeleton');
+  hide('chartTendencia');
+  show('chartTendenciaSkeleton');
+  hide('actividadList');
+  show('actividadListSkeleton');
+  showLoading();
+  
+  google.script.run
+    .withSuccessHandler(result => {
+      STATE.lastPeriodoType = STATE.periodo.type;
+      STATE.lastPeriodoInicio = STATE.periodo.inicio;
+      STATE.lastPeriodoFin = STATE.periodo.fin;
+      
+      const kpis = result.kpis || { total: 0, pendientes: 0, aprobadas: 0, vencidas: 0 };
+      const recientesData = result.recientes || {};
+      const recientes = recientesData.data || recientesData || [];
+      
+      STATE.kpis = kpis;
+      STATE.recientes = recientes.slice(0, 8);
+      STATE.tendencias = result.tendencias;
+      
+      renderKpis(STATE.kpis);
+      renderTablaResumen(STATE.recientes);
+      renderActividadReciente(STATE.recientes);
+    })
+    .withFailureHandler(err => {
+      hideLoading();
+      showToast('Error al cargar datos del dashboard: ' + err.message, 'error');
+      
+      // Ocultar skeletons
+      hide('chartEstadosSkeleton');
+      hide('chartTendenciaSkeleton');
+      hide('actividadListSkeleton');
+      show('chartEstados');
+      show('chartTendencia');
+      show('actividadList');
+      
+      STATE.tendencias = null;
+      renderKpis({ total: 0, pendientes: 0, aprobadas: 0, rechazadas: 0, en_revision: 0 });
+      renderTablaResumen([]);
+      renderActividadReciente([]);
+    })
+    .apiGetDashboardComboData(token, !!force, STATE.periodo);
+}
+
+function cambiarPeriodoDashboard(val) {
+  if (val === 'CUSTOM') {
+    show('dbCustomDates');
+  } else {
+    hide('dbCustomDates');
+    STATE.periodo = { type: val };
+    cargarDashboard(true);
+  }
+}
+
+function aplicarFechasPersonalizadasDashboard() {
+  const inicio = document.getElementById('dbFechaInicio').value;
+  const fin = document.getElementById('dbFechaFin').value;
+  
+  if (inicio && fin) {
+    if (new Date(inicio) > new Date(fin)) {
+      showToast('La fecha de inicio no puede ser posterior a la fecha de fin', 'error');
+      return;
+    }
+    STATE.periodo = {
+      type: 'CUSTOM',
+      inicio: inicio,
+      fin: fin
+    };
+    cargarDashboard(true);
+  }
+}
+
+function cargarKpis(force) {
+  cargarDashboard(force);
+}
+
+/**
+ * Renderiza las 4 tarjetas de KPI en el dashboard.
+ * Reemplaza el skeleton con las tarjetas reales y dispara los contadores animados.
+ *
+ * @param {{ total, pendientes, aprobadas, vencidas }} kpis
+ */
+function renderKpis(kpis) {
+  hideLoading();
+  const grid = document.getElementById('kpiGrid');
+  if (!grid) return;
+
+  const total = kpis.total || 1; // evitar división por cero
+
+  grid.innerHTML =
+    _kpiCard('kpi-total', 'Total solicitudes', 'animTotal',
+      kpis.total || 0, 'Expedientes registrados',
+      '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
+      null, '', 'dashboard') +
+
+    _kpiCard('kpi-pending', 'Pendientes', 'animPending',
+      kpis.pendientes || 0, 'Sin decisión registrada',
+      '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+      kpis.total, Math.round((kpis.pendientes || 0) / total * 100) + '% del total', 'solicitudes') +
+
+    _kpiCard('kpi-approved', 'Aprobadas', 'animApproved',
+      kpis.aprobadas || 0, 'Créditos vigentes',
+      '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
+      kpis.total, Math.round((kpis.aprobadas || 0) / total * 100) + '% del total', 'solicitudes') +
+
+    _kpiCard('kpi-rejected', 'Vencidas', 'animRejected',
+      kpis.vencidas || 0, 'Créditos con vigencia expirada',
+      '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 15 15"/>',
+      kpis.total, Math.round((kpis.vencidas || 0) / total * 100) + '% del total', 'solicitudes');
+
+  // Animar todos los contadores
+  animateCount('animTotal',    kpis.total     || 0);
+  animateCount('animPending',  kpis.pendientes|| 0);
+  animateCount('animApproved', kpis.aprobadas || 0);
+  animateCount('animRejected', kpis.vencidas   || 0);
+
+  // Dibujar sparklines
+  _drawSparkline('sparkTotal',    _generateTrend(kpis.total || 0),    '#487b71');
+  _drawSparkline('sparkPending',  _generateTrend(kpis.pendientes || 0),'#ca711f');
+  _drawSparkline('sparkApproved', _generateTrend(kpis.aprobadas || 0), '#1a6e3c');
+  _drawSparkline('sparkRejected', _generateTrend(kpis.vencidas || 0),  '#dc2626');
+
+  // Actualizar badge en el sidebar y en el chip de solicitudes
+  const badge = document.getElementById('badgePendientes');
+  const badgeChip = document.getElementById('badgePendientesChip');
+  if (badge || badgeChip) {
+    const n = (typeof kpis.pendientesGlobales !== 'undefined') ? kpis.pendientesGlobales : (kpis.pendientes || 0);
+    if (badge) {
+      badge.textContent    = n;
+      badge.style.display  = n > 0 ? '' : 'none';
+    }
+    if (badgeChip) {
+      badgeChip.textContent   = n;
+      badgeChip.style.display = n > 0 ? 'inline-flex' : 'none';
+    }
+  }
+
+  STATE.kpis = kpis;
+  renderDashboardCharts(kpis);
+}
+
+/** Helper privado: construye el HTML de una tarjeta KPI interactiva con sparkline. */
+function _kpiCard(cls, label, animId, valor, sub, iconPath, total, pct, navTarget) {
+  let dataEstado = '';
+  if (cls === 'kpi-pending') dataEstado = 'PENDIENTE';
+  else if (cls === 'kpi-approved') dataEstado = 'APROBADA';
+  else if (cls === 'kpi-rejected') dataEstado = 'VENCIDO';
+  
+  const navAttr = `onclick="irASolicitudesConFiltro('${dataEstado}')" title="Filtrar solicitudes por ${label}"`;
+  
+  let trendHtml = '';
+  if (cls === 'kpi-approved') {
+    trendHtml = `<span class="trend-up"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg> ${pct}</span> <span class="trend-sub">del total</span>`;
+  } else if (cls === 'kpi-pending') {
+    trendHtml = `<span class="trend-neutral"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="13 6 19 12 13 18"/></svg> ${pct}</span> <span class="trend-sub">del total</span>`;
+  } else if (cls === 'kpi-rejected') {
+    trendHtml = `<span class="trend-down"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg> ${pct}</span> <span class="trend-sub">del total</span>`;
+  } else {
+    trendHtml = `<span class="trend-sub" style="font-weight: 500;">${escHtml(sub)}</span>`;
+  }
+
+  return `<div class="kpi-card ${cls}" ${navAttr}>
+    <div class="kpi-card-top">
+      <div class="kpi-label">${escHtml(label)}</div>
+      <div class="kpi-icon-circle-v2">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;">${iconPath}</svg>
+      </div>
+    </div>
+    <div class="kpi-num" id="${animId}">0</div>
+    <div class="kpi-footer">
+      ${trendHtml}
+    </div>
+    <canvas class="kpi-sparkline" id="spark${animId.replace('anim','')}"></canvas>
+  </div>`;
+}
+
+/** Genera datos de tendencia simulados para el sparkline. */
+function _generateTrend(currentVal) {
+  const points = 7;
+  const data   = [];
+  let v = Math.max(currentVal * 0.5, 1);
+  for (let i = 0; i < points; i++) {
+    v = Math.max(0, v + (Math.random() - 0.4) * v * 0.3);
+    data.push(v);
+  }
+  data[points - 1] = currentVal; // el último punto es el valor real
+  return data;
+}
+
+/** Dibuja un mini sparkline en un <canvas> por ID. */
+function _drawSparkline(canvasId, data, color) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  
+  // Utilizar resolución fija interna del canvas para evitar inconsistencias
+  // al calcular offsetWidth en elementos ocultos o responsivos.
+  const W = 360;
+  const H = 35;
+  
+  canvas.width  = W * (window.devicePixelRatio || 1);
+  canvas.height = H * (window.devicePixelRatio || 1);
+  ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+
+  const min = Math.min(...data);
+  const max = Math.max(...data) || 1;
+  
+  // padY para evitar que se corten los picos del trazo
+  const padY = 2;
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.beginPath();
+  data.forEach((val, i) => {
+    // Escala X directa de 0 a W para ocupar el 100% del ancho
+    const x = (i / (data.length - 1)) * W;
+    const y = H - padY - ((val - min) / (max - min || 1)) * (H - padY * 2);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.8;
+  ctx.lineJoin  = 'round';
+  ctx.lineCap   = 'round';
+  ctx.stroke();
+
+  // Relleno de gradiente
+  const fillPath = new Path2D();
+  data.forEach((val, i) => {
+    const x = (i / (data.length - 1)) * W;
+    const y = H - padY - ((val - min) / (max - min || 1)) * (H - padY * 2);
+    i === 0 ? fillPath.moveTo(x, y) : fillPath.lineTo(x, y);
+  });
+  fillPath.lineTo(W, H); 
+  fillPath.lineTo(0, H); 
+  fillPath.closePath();
+  
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, color + '22');
+  grad.addColorStop(1, color + '00');
+  ctx.fillStyle = grad;
+  ctx.fill(fillPath);
+}
+
+/**
+ * Anima un contador de 0 al valor objetivo usando easeOutCubic.
+ * @param {string} elId   - ID del elemento a animar.
+ * @param {number} target - Valor objetivo.
+ */
+function animateCount(elId, target) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const duration = 900;
+  const startTs  = performance.now();
+  function step(now) {
+    const progress = Math.min((now - startTs) / duration, 1);
+    const ease     = 1 - Math.pow(1 - progress, 3); // easeOutCubic
+    el.textContent = Math.round(ease * target);
+    if (progress < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+// ─── Tabla Recientes ──────────────────────────────────────────────────────────
+
+/**
+ * Carga las 8 solicitudes más recientes para la tabla del dashboard.
+ * Muestra skeleton mientras carga.
+ */
+function cargarDashboardRecientes(force) {
+  cargarDashboard(force);
+}
+
+/**
+ * Renderiza la tabla del dashboard con las solicitudes recientes.
+ * @param {Array} rows - Array de objetos de solicitud.
+ */
+function renderTablaResumen(rows) {
+  hideLoading();
+  const tbody = document.getElementById('dashboardTableBody');
+  if (!tbody) return;
+
+  tbody.innerHTML = rows.length === 0
+    ? '<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--muted);">No hay solicitudes registradas.</td></tr>'
+    : rows.map(buildTableRow).join('');
+
+  hide('tablaDashboardSkeleton');
+  show('tablaDashboard');
+}
+
+/**
+ * Renderiza el widget de actividad reciente con las últimas solicitudes.
+ * @param {Array} rows
+ */
+function renderActividadReciente(rows) {
+  hide('actividadListSkeleton');
+  show('actividadList');
+  const list = document.getElementById('actividadList');
+  if (!list) return;
+  if (!rows || rows.length === 0) {
+    list.innerHTML = '<li style="padding:24px;text-align:center;color:var(--muted);font-size:13px;">Sin actividad reciente.</li>';
+    return;
+  }
+
+  list.innerHTML = rows.slice(0, 6).map(r => {
+    const inicial = (r.razon_social || r.empresa || 'S').charAt(0).toUpperCase();
+    const nombre  = escHtml(r.razon_social || r.empresa || 'Empresa');
+    const codigo  = escHtml(r.codigo_solicitud || '');
+    const accion  = escHtml(r.accion || 'PENDIENTE');
+    const tiempo  = _tiempoRelativoAct(r.fecha_envio || r.fecha || '');
+    const badge   = getBadgeHtml(r.accion);
+    // Color del avatar según el estado
+    const bgMap   = { APROBADA: '#1a6e3c', ACTIVA: '#1a6e3c', ACTIVO: '#1a6e3c', RECHAZADA: '#b84a00', EN_REVISION: '#20daf0' };
+    const bg      = bgMap[(r.accion || '').toUpperCase().split(' ')[0]] || '#487b71';
+
+    return `<li class="activity-item" onclick="abrirExpediente('${escHtml(r.uuid || '')}')">
+      <div class="activity-avatar" style="background:${bg};">${inicial}</div>
+      <div class="activity-body">
+        <div class="activity-title"><strong>${nombre}</strong> · ${codigo}</div>
+        <div class="activity-time">${tiempo}</div>
+      </div>
+      <div class="activity-badge">${badge}</div>
+    </li>`;
+  }).join('');
+}
+
+function _tiempoRelativoAct(fechaStr) {
+  if (!fechaStr) return '';
+  try {
+    const fecha = new Date(fechaStr);
+    const diff  = Date.now() - fecha.getTime();
+    const mins  = Math.floor(diff / 60000);
+    if (mins < 1)   return 'Ahora';
+    if (mins < 60)  return `Hace ${mins} min`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24)   return `Hace ${hrs}h`;
+    const days = Math.floor(hrs / 24);
+    if (days < 7)   return `Hace ${days} día${days > 1 ? 's' : ''}`;
+    return fecha.toLocaleDateString('es', { day: '2-digit', month: 'short' });
+  } catch { return ''; }
+}
+
+let chartEstadosInstance = null;
+let chartTendenciaInstance = null;
+
+/**
+ * Inicializa o actualiza los gráficos del Dashboard con Chart.js.
+ * @param {{ total, pendientes, aprobadas, rechazadas, en_revision }} kpis
+ */
+// State for chart types
+let currentTendenciaType = 'line';
+let currentEstadosType = 'pie';
+
+const TENDENCIA_TYPES = ['line', 'bar'];
+let tendenciaTypeIdx = 0;
+
+function cambiarTipoGraficaTendencia(dir) {
+  tendenciaTypeIdx = (tendenciaTypeIdx + dir + TENDENCIA_TYPES.length) % TENDENCIA_TYPES.length;
+  currentTendenciaType = TENDENCIA_TYPES[tendenciaTypeIdx];
+  if (STATE.kpis) {
+    renderDashboardCharts(STATE.kpis, currentTendenciaType, currentEstadosType);
+  }
+}
+
+const ESTADOS_TYPES = ['pie', 'polarArea'];
+let estadosTypeIdx = 0;
+
+function cambiarTipoGraficaEstados(dir) {
+  estadosTypeIdx = (estadosTypeIdx + dir + ESTADOS_TYPES.length) % ESTADOS_TYPES.length;
+  currentEstadosType = ESTADOS_TYPES[estadosTypeIdx];
+  if (STATE.kpis) {
+    renderDashboardCharts(STATE.kpis, currentTendenciaType, currentEstadosType);
+  }
+}
+
+function renderDashboardCharts(kpis, tendenciaType, estadosType) {
+  hide('chartEstadosSkeleton');
+  show('chartEstados');
+  hide('chartTendenciaSkeleton');
+  show('chartTendencia');
+  
+  const ctxEstados = document.getElementById('chartEstados');
+  const ctxTendencia = document.getElementById('chartTendencia');
+  if (!ctxEstados || !ctxTendencia) return;
+
+  const tType = tendenciaType || currentTendenciaType || 'line';
+  const eType = estadosType || currentEstadosType || 'pie';
+
+  // Destruir instancias previas
+  if (chartEstadosInstance) chartEstadosInstance.destroy();
+  if (chartTendenciaInstance) chartTendenciaInstance.destroy();
+
+  const isDark = document.body.classList.contains('dark-mode');
+  const textColor = isDark ? '#e6f3f2' : '#2b514e';
+  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(59, 101, 98,0.08)';
+
+  // Sombra ligera para gráficos circulares/polares
+  const shadowPlugin = {
+    id: 'shadowPlugin',
+    beforeDatasetsDraw: (chart) => {
+      const ctx = chart.ctx;
+      ctx.save();
+      ctx.shadowColor = isDark ? 'rgba(0, 0, 0, 0.4)' : 'rgba(0, 0, 0, 0.16)';
+      ctx.shadowBlur = 10;
+      ctx.shadowOffsetX = 3;
+      ctx.shadowOffsetY = 5;
+    },
+    afterDatasetsDraw: (chart) => { chart.ctx.restore(); }
+  };
+
+  function createPieGradients(ctx) {
+    const g1 = ctx.createLinearGradient(0, 0, 0, 240); // Aprobadas
+    g1.addColorStop(0, '#22c55e');
+    g1.addColorStop(1, '#15803d');
+
+    const g2 = ctx.createLinearGradient(0, 0, 0, 240); // Pendientes
+    g2.addColorStop(0, '#ff9710');
+    g2.addColorStop(1, '#a83c00');
+
+    const g3 = ctx.createLinearGradient(0, 0, 0, 240); // Vencidas
+    g3.addColorStop(0, '#f87171');
+    g3.addColorStop(1, '#b91c1c');
+
+    return [g1, g2, g3];
+  }
+
+  const bgColors = createPieGradients(ctxEstados.getContext('2d'));
+
+  // 1. Gráfico de Estados (Derecha)
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    onClick: (evt, elements) => {
+      if (elements && elements.length > 0) {
+        const index = elements[0].index;
+        const labelsMap = {
+          0: 'APROBADA',
+          1: 'PENDIENTE',
+          2: 'VENCIDO'
+        };
+        const estado = labelsMap[index];
+        if (estado !== undefined) {
+          irASolicitudesConFiltro(estado);
+        }
+      }
+    },
+    plugins: {
+      legend: {
+        position: 'bottom',
+        labels: {
+          color: textColor,
+          font: { family: 'Outfit', size: 10, weight: '600' },
+          padding: 10,
+          boxWidth: 7, boxHeight: 7,
+          usePointStyle: true, pointStyle: 'circle'
+        }
+      },
+      tooltip: {
+        backgroundColor: isDark ? '#1c2d31' : '#fff',
+        titleColor: textColor,
+        bodyColor: isDark ? '#8b949e' : '#606060',
+        borderColor: isDark ? 'rgba(255,255,255,.1)' : 'rgba(59, 101, 98,.12)',
+        borderWidth: 1,
+        cornerRadius: 8,
+        padding: 10,
+        titleFont: { family: 'Outfit', weight: '700' },
+        bodyFont: { family: 'Outfit' }
+      }
+    }
+  };
+
+  if (eType === 'polarArea') {
+    chartOptions.scales = {
+      r: {
+        grid: { color: gridColor },
+        angleLines: { color: gridColor },
+        ticks: {
+          color: textColor,
+          font: { family: 'Outfit', size: 10, weight: '600' },
+          backdropColor: isDark ? 'rgba(28, 45, 49, 0.75)' : 'rgba(255, 255, 255, 0.75)',
+          backdropPadding: 4,
+          z: 10
+        }
+      }
+    };
+  }
+
+  chartEstadosInstance = new Chart(ctxEstados, {
+    type: eType,
+    data: {
+      labels: ['Aprobadas', 'Pendientes', 'Vencidas'],
+      datasets: [{
+        data: [kpis.aprobadas || 0, kpis.pendientes || 0, kpis.vencidas || 0],
+        backgroundColor: bgColors,
+        borderWidth: isDark ? 2 : 1.5,
+        borderColor: isDark ? '#162222' : '#ffffff'
+      }]
+    },
+    options: chartOptions,
+    plugins: [shadowPlugin]
+  });
+
+  // 2. Gráfico de Tendencias (Izquierda)
+  const autoAgrup = (STATE.periodo && (STATE.periodo.type === 'ALL' || STATE.periodo.type === 'ESTE_ANIO')) ? 'mensual' : 'diario';
+  const trendData = STATE.tendencias && STATE.tendencias[autoAgrup] ? STATE.tendencias[autoAgrup] : [];
+  const trendLabels = trendData.map(function(dp) { return dp.label; });
+
+  const ctx = ctxTendencia.getContext('2d');
+  
+  function createAreaGradient(ctx, colorHex) {
+    const grad = ctx.createLinearGradient(0, 0, 0, 240);
+    let r = 73, g = 103, b = 122; // default slate
+    if (colorHex.startsWith('#')) {
+      const hex = colorHex.substring(1);
+      r = parseInt(hex.substring(0, 2), 16);
+      g = parseInt(hex.substring(2, 4), 16);
+      b = parseInt(hex.substring(4, 6), 16);
+    }
+    grad.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0.15)`);
+    grad.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0.01)`);
+    return grad;
+  }
+
+  const datasets = [
+    {
+      label: 'Nueva',
+      data: trendData.map(function(dp) { return dp.nueva || 0; }),
+      borderColor: '#487b71',
+      borderWidth: tType === 'line' ? 2.8 : 0,
+      tension: 0.38,
+      pointBackgroundColor: '#487b71',
+      pointBorderColor: isDark ? '#162222' : '#ffffff',
+      pointBorderWidth: 1,
+      pointRadius: 0,
+      pointHoverRadius: tType === 'line' ? 5 : 0,
+      fill: tType === 'line',
+      backgroundColor: tType === 'line' ? createAreaGradient(ctx, '#487b71') : '#487b71',
+      borderRadius: tType === 'bar' ? 4 : 0
+    },
+    {
+      label: 'Ampliación',
+      data: trendData.map(function(dp) { return dp.ampliacion || 0; }),
+      borderColor: '#ca711f',
+      borderWidth: tType === 'line' ? 2.8 : 0,
+      tension: 0.38,
+      pointBackgroundColor: '#ca711f',
+      pointBorderColor: isDark ? '#162222' : '#ffffff',
+      pointBorderWidth: 1,
+      pointRadius: 0,
+      pointHoverRadius: tType === 'line' ? 5 : 0,
+      fill: tType === 'line',
+      backgroundColor: tType === 'line' ? createAreaGradient(ctx, '#ca711f') : '#ca711f',
+      borderRadius: tType === 'bar' ? 4 : 0
+    },
+    {
+      label: 'Renovación',
+      data: trendData.map(function(dp) { return dp.renovacion || 0; }),
+      borderColor: '#1a6e3c',
+      borderWidth: tType === 'line' ? 2.8 : 0,
+      tension: 0.38,
+      pointBackgroundColor: '#1a6e3c',
+      pointBorderColor: isDark ? '#162222' : '#ffffff',
+      pointBorderWidth: 1,
+      pointRadius: 0,
+      pointHoverRadius: tType === 'line' ? 5 : 0,
+      fill: tType === 'line',
+      backgroundColor: tType === 'line' ? createAreaGradient(ctx, '#1a6e3c') : '#1a6e3c',
+      borderRadius: tType === 'bar' ? 4 : 0
+    },
+    {
+      label: 'Homologación',
+      data: trendData.map(function(dp) { return dp.homologacion || 0; }),
+      borderColor: '#00c998',
+      borderWidth: tType === 'line' ? 2.8 : 0,
+      tension: 0.38,
+      pointBackgroundColor: '#00c998',
+      pointBorderColor: isDark ? '#162222' : '#ffffff',
+      pointBorderWidth: 1,
+      pointRadius: 0,
+      pointHoverRadius: tType === 'line' ? 5 : 0,
+      fill: tType === 'line',
+      backgroundColor: tType === 'line' ? createAreaGradient(ctx, '#00c998') : '#00c998',
+      borderRadius: tType === 'bar' ? 4 : 0
+    }
+  ];
+
+  chartTendenciaInstance = new Chart(ctxTendencia, {
+    type: tType,
+    data: {
+      labels: trendLabels,
+      datasets: datasets
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: true,
+          position: 'bottom',
+          labels: {
+            color: textColor,
+            font: { family: 'Outfit', size: 10, weight: '600' },
+            boxWidth: 7, boxHeight: 7,
+            usePointStyle: true, pointStyle: 'circle',
+            padding: 10
+          }
+        },
+        tooltip: {
+          backgroundColor: isDark ? '#1c2d31' : '#fff',
+          titleColor: textColor,
+          bodyColor: isDark ? '#8b949e' : '#606060',
+          borderColor: isDark ? 'rgba(255,255,255,.1)' : 'rgba(59, 101, 98,.12)',
+          borderWidth: 1,
+          cornerRadius: 8,
+          padding: 10,
+          titleFont: { family: 'Outfit', weight: '700' },
+          bodyFont: { family: 'Outfit' }
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: {
+            color: textColor,
+            font: { family: 'Outfit', size: 10.5 }
+          }
+        },
+        y: {
+          grid: { color: gridColor },
+          ticks: {
+            color: textColor,
+            font: { family: 'Outfit', size: 10.5 },
+            precision: 0
+          }
+        }
+      }
+    },
+    plugins: [shadowPlugin]
+  });
+}
+
+/**
+ * Muestra u oculta el panel desplegable de opciones de exportación.
+ */
+function toggleExportDropdown(event) {
+  if (event) {
+    event.stopPropagation();
+    event.preventDefault();
+  }
+  const dropdown = document.getElementById('dbExportDropdown');
+  if (dropdown) {
+    dropdown.classList.toggle('show');
+  }
+}
+
+/**
+ * Exporta el reporte del panel a un Spreadsheet XLSX temporal en Google Drive y lo descarga.
+ */
+function exportarDashboardExcel(event) {
+  if (event) event.preventDefault();
+  const token = STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '';
+  toggleExportDropdown();
+
+  showLoading();
+  google.script.run
+    .withSuccessHandler(res => {
+      hideLoading();
+      if (res && res.ok && res.url) {
+        window.open(res.url, '_blank');
+        showToast('Reporte Excel generado y descargado correctamente', 'success');
+      } else {
+        showToast('Error al exportar a Excel: URL inválida', 'error');
+      }
+    })
+    .withFailureHandler(err => {
+      hideLoading();
+      showToast('Error al exportar a Excel: ' + err.message, 'error');
+    })
+    .apiExportarDashboardExcel(token, STATE.periodo);
+}
+
+/**
+ * Exporta las solicitudes correspondientes al período del panel directamente a formato CSV.
+ */
+function exportarDashboardCSV(event) {
+  if (event) event.preventDefault();
+  const token = STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '';
+  toggleExportDropdown();
+
+  showLoading();
+  google.script.run
+    .withSuccessHandler(csvData => {
+      hideLoading();
+      if (csvData) {
+        const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a");
+        const label = (STATE.periodo ? STATE.periodo.type : 'ALL').toLowerCase();
+        link.href = URL.createObjectURL(blob);
+        link.setAttribute("download", "Cuadra_Reporte_Creditos_" + label + ".csv");
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        showToast('Reporte CSV descargado correctamente', 'success');
+      } else {
+        showToast('No hay datos disponibles para exportar a CSV', 'warning');
+      }
+    })
+    .withFailureHandler(err => {
+      hideLoading();
+      showToast('Error al exportar a CSV: ' + err.message, 'error');
+    })
+    .apiExportarDashboardCSV(token, STATE.periodo);
+}
+
+/**
+ * Genera una presentación en Google Drive (Google Slides) con gráficos y KPIs, o la descarga directamente como PDF.
+ * @param {string} formato - 'slides' o 'pdf'.
+ */
+function generarPresentacionSlides(formato, event) {
+  if (event) event.preventDefault();
+  const token = STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '';
+  toggleExportDropdown();
+
+  showLoading();
+  
+  var base64Dona = null;
+  var base64Barras = null;
+  
+  try {
+    if (chartEstadosInstance) {
+      base64Dona = chartEstadosInstance.toBase64Image();
+    }
+    if (chartTendenciaInstance) {
+      base64Barras = chartTendenciaInstance.toBase64Image();
+    }
+  } catch (e) {
+    console.error('Error al extraer imágenes de gráficos: ' + e.message);
+  }
+  
+  google.script.run
+    .withSuccessHandler(res => {
+      hideLoading();
+      if (res && res.ok && res.url) {
+        window.open(res.url, '_blank');
+        var msg = formato === 'pdf' ? 'Reporte PDF descargado' : 'Presentación Google Slides abierta';
+        showToast(msg, 'success');
+      } else {
+        showToast('Error al generar presentación: Sin URL válida', 'error');
+      }
+    })
+    .withFailureHandler(err => {
+      hideLoading();
+      var msg = err.message || String(err);
+      if (msg.toLowerCase().includes('permiso') || msg.toLowerCase().includes('permission') || msg.toLowerCase().includes('authorization')) {
+        showToast('Sin permiso para Google Slides. Ve al editor de Apps Script → ejecuta cualquier función → autoriza "Google Slides" → intenta de nuevo.', 'error');
+      } else {
+        showToast('Error al generar la presentación: ' + msg, 'error');
+      }
+    })
+    .apiExportarDashboardPresentacion(token, STATE.periodo, base64Dona, base64Barras, formato);
+}
+
+// Clic global para cerrar el dropdown si se pulsa fuera
+window.addEventListener('click', function(e) {
+  const dropdown = document.getElementById('dbExportDropdown');
+  if (dropdown && dropdown.classList.contains('show')) {
+    const wrapper = e.target.closest('.export-dropdown-wrapper');
+    if (!wrapper) {
+      dropdown.classList.remove('show');
+    }
+  }
+});
+</script>

@@ -1,0 +1,108 @@
+<!-- ═══════════════════════ LOGIN ═══════════════════════════ -->
+<div id="loginScreen">
+  <!-- Botón tema en login -->
+  <button class="btn-theme-toggle" onclick="toggleTheme()" title="Alternar modo oscuro/claro"
+          style="position:absolute;top:24px;right:24px;z-index:10000;width:38px;height:38px;border-radius:10px;">
+    <span class="theme-icon-sun">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:18px;height:18px;">
+        <circle cx="12" cy="12" r="5"/>
+        <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+        <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+      </svg>
+    </span>
+    <span class="theme-icon-moon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:18px;height:18px;">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
+    </span>
+  </button>
+
+  <!-- Formulario Login -->
+  <div class="login-card" id="loginFormCard">
+    <div class="login-logo">
+      <img src="https://lh3.googleusercontent.com/d/TU_LOGO_DRIVE_ID" alt="CupoFlow" class="login-logo-img">
+      <div class="login-logo-sub">Portal de Créditos Corporativos</div>
+    </div>
+
+    <div class="login-field">
+      <label>Correo electrónico</label>
+      <input type="email" id="loginEmail" placeholder="usuario@example.com" autocomplete="username">
+    </div>
+
+    <div class="login-field">
+      <label>Contraseña</label>
+      <div style="position:relative;">
+        <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password" style="padding-right:42px;">
+        <button type="button" class="pwd-toggle" onclick="togglePwd('loginPassword')">
+          <span class="eye-on-ico">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+            </svg>
+          </span>
+          <span class="eye-off-ico" style="display:none;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;">
+              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+              <line x1="1" y1="1" x2="23" y2="23"/>
+            </svg>
+          </span>
+        </button>
+      </div>
+    </div>
+
+    <button class="login-btn" id="loginBtn" onclick="iniciarSesion()">Iniciar sesión</button>
+
+    <div style="display:flex;justify-content:center;align-items:center;margin-top:16px;font-size:13px;">
+      <a href="#" onclick="toggleAuthMode('recover');return false;" style="color:var(--muted);text-decoration:none;font-weight:500;">¿Olvidaste tu contraseña?</a>
+    </div>
+    <div class="login-error" id="loginError"></div>
+  </div>
+
+  <!-- Formulario Recuperación -->
+  <div class="login-card" id="recoverFormCard" style="display:none;">
+    <div class="login-logo">
+      <img src="https://lh3.googleusercontent.com/d/TU_LOGO_DRIVE_ID" alt="CupoFlow" class="login-logo-img">
+      <div class="login-logo-sub">Recuperar contraseña</div>
+    </div>
+
+    <div class="login-field">
+      <label>Correo electrónico registrado</label>
+      <input type="email" id="recoverEmail" placeholder="usuario@example.com">
+    </div>
+
+    <div id="recoverCodeField" style="display:none;">
+      <div class="login-field">
+        <label>Código de recuperación (6 dígitos)</label>
+        <input type="text" id="recoverCodigo" placeholder="123456" maxlength="6" style="text-align:center;letter-spacing:4px;font-weight:700;font-size:16px;">
+      </div>
+      <div class="login-field">
+        <label>Nueva contraseña</label>
+        <div style="position:relative;">
+          <input type="password" id="recoverPassword" placeholder="••••••••" style="padding-right:42px;">
+          <button type="button" class="pwd-toggle" onclick="togglePwd('recoverPassword')">
+            <span class="eye-on-ico">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+              </svg>
+            </span>
+            <span class="eye-off-ico" style="display:none;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;">
+                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                <line x1="1" y1="1" x2="23" y2="23"/>
+              </svg>
+            </span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <button class="login-btn" id="recoverBtn" onclick="procesarRecuperacionStep()">Enviar código de recuperación</button>
+
+    <div style="text-align:center;margin-top:16px;font-size:13px;">
+      <span style="color:var(--muted);">¿Te acordaste?</span>
+      <a href="#" onclick="toggleAuthMode('login');return false;" style="color:var(--navy2);font-weight:600;text-decoration:none;margin-left:4px;">Inicia sesión</a>
+    </div>
+    <div class="login-error" id="recoverError"></div>
+  </div>
+</div><!-- /loginScreen -->

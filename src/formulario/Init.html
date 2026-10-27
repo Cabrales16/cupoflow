@@ -1,0 +1,73 @@
+<script>
+/* Init.html */
+window.addEventListener('load', init);
+window.addEventListener('load', initWaveBg);
+
+function initWaveBg() {
+  const canvas = document.getElementById('waveBg');
+  if (!canvas) return;
+
+  const ctx = canvas.getContext('2d');
+  let t = 0;
+
+  function resize() {
+    canvas.width  = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  function drawWave(yCenter, amplitude, frequency, phaseOffset, thickness, alpha) {
+    ctx.beginPath();
+    const w = canvas.width;
+    for (let x = 0; x <= w; x += 2) {
+      const distortion =
+        Math.sin(x * 0.02 + t * 0.05) * 1.5 +
+        Math.cos(x * 0.01 - t * 0.03) * 2;
+      const y = yCenter + amplitude * Math.sin(x * frequency + t + phaseOffset + distortion);
+      x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = `rgba(96,96,96,${alpha})`;
+    ctx.lineWidth   = thickness;
+    ctx.stroke();
+  }
+
+  function render() {
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    const waveCount = 12;
+
+    // Líneas horizontales
+    for (let i = 0; i < waveCount; i++) {
+      const yCenter     = h * 0.08 + (h * 0.84) * (i / (waveCount - 1));
+      const amplitude   = 6 + Math.sin(t * 0.025 + i * 0.3) * 3;
+      const frequency   = 0.018 + 0.008 * Math.sin(i * 0.2);
+      const phaseOffset = i * 0.3;
+      const thickness   = 0.4 + Math.sin(t + i) * 0.2;
+      drawWave(yCenter, amplitude, frequency, phaseOffset, thickness, 0.18); // era 0.13
+    }
+
+    // Líneas verticales
+    ctx.save();
+    ctx.translate(w / 2, h / 2);
+    ctx.rotate(Math.PI / 2);
+    ctx.translate(-h / 2, -w / 2);
+    for (let i = 0; i < waveCount; i++) {
+      const yCenter     = h * 0.08 + (h * 0.84) * (i / (waveCount - 1));
+      const amplitude   = 8 + Math.cos(t * 0.04 + i * 0.3) * 4;
+      const frequency   = 0.018 + 0.008 * Math.cos(i * 0.3);
+      const phaseOffset = i * 0.4;
+      const thickness   = 0.4 + Math.cos(t + i) * 0.2;
+      drawWave(yCenter, amplitude, frequency, phaseOffset, thickness, 0.12); // era 0.07
+    }
+    ctx.restore();
+
+    t += 0.004;
+    requestAnimationFrame(render);
+  }
+
+  render();
+}
+</script>

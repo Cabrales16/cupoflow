@@ -1,0 +1,316 @@
+<script>
+/* ─────────────────────────────────────────────────────────────────────────
+   JS_CentrosCreditos.html — Relación de Centros y sus Créditos Vinculados
+   CupoFlow · Panel de Control y Administración - Solicitud de Créditos
+   ───────────────────────────────────────────────────────────────────────── */
+
+// Estado local para los Centros y Créditos
+const CENTROS_CREDITOS_STATE = {
+  centros: [],
+  solicitudes: []
+};
+
+/**
+ * Carga en paralelo los centros de configuración y la lista de solicitudes.
+ * Muestra el loading y renderiza los datos relacionados.
+ */
+function cargarCentrosCreditos(force) {
+  if (!force && CENTROS_CREDITOS_STATE.centros && CENTROS_CREDITOS_STATE.centros.length > 0 && CENTROS_CREDITOS_STATE.solicitudes && CENTROS_CREDITOS_STATE.solicitudes.length > 0) {
+    const searchInput = document.getElementById('centrosSearchInput');
+    if (searchInput) searchInput.value = '';
+    renderCentrosCreditos(CENTROS_CREDITOS_STATE.centros, CENTROS_CREDITOS_STATE.solicitudes);
+    return;
+  }
+  showLoading();
+  const token = STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '';
+  let centrosData = null;
+  let solicitudesData = null;
+  let doneCount = 0;
+
+  function checkDone() {
+    doneCount++;
+    if (doneCount === 2) {
+      hideLoading();
+      CENTROS_CREDITOS_STATE.centros = centrosData;
+      CENTROS_CREDITOS_STATE.solicitudes = solicitudesData;
+      
+      // Limpiar buscador al cargar
+      const searchInput = document.getElementById('centrosSearchInput');
+      if (searchInput) searchInput.value = '';
+
+      renderCentrosCreditos(centrosData, solicitudesData);
+    }
+  }
+
+  // 1. Cargar catálogo de centros
+  google.script.run
+    .withSuccessHandler(res => {
+      centrosData = res.rows || [];
+      checkDone();
+    })
+    .withFailureHandler(err => {
+      hideLoading();
+      showToast('Error al cargar catálogo de centros: ' + err.message, 'error');
+    })
+    .apiGetConfiguracion(token, 'Centros');
+
+  // 2. Cargar solicitudes de crédito
+  google.script.run
+    .withSuccessHandler(res => {
+      solicitudesData = res || [];
+      checkDone();
+    })
+    .withFailureHandler(err => {
+      hideLoading();
+      showToast('Error al cargar solicitudes de crédito: ' + err.message, 'error');
+    })
+    .apiGetSolicitudes(token, {});
+}
+
+/**
+ * Filtra los centros de forma instantánea según el texto ingresado en el buscador.
+ */
+function filtrarCentrosCreditos() {
+  const query = (document.getElementById('centrosSearchInput')?.value || '').toLowerCase().trim();
+  
+  if (!query) {
+    renderCentrosCreditos(CENTROS_CREDITOS_STATE.centros, CENTROS_CREDITOS_STATE.solicitudes);
+    return;
+  }
+
+  const filteredCentros = CENTROS_CREDITOS_STATE.centros.filter(hRow => {
+    const codigo = String(hRow[0] || '').toLowerCase();
+    const nombre = String(hRow[1] || '').toLowerCase();
+    const nit    = String(hRow[2] || '').toLowerCase();
+    const razon  = String(hRow[3] || '').toLowerCase();
+
+    return codigo.includes(query) || nombre.includes(query) || nit.includes(query) || razon.includes(query);
+  });
+
+  renderCentrosCreditos(filteredCentros, CENTROS_CREDITOS_STATE.solicitudes, true);
+}
+
+/**
+ * Renderiza la lista de centros con su respectivo total de créditos aprobados
+ * y las solicitudes vinculadas pintadas como chips interactivos de colores.
+ *
+ * @param {Array} centros - Filas de la hoja de Centros.
+ * @param {Array} solicitudes - Lista de objetos de solicitud.
+ * @param {boolean} [isFiltered=false] - Indica si se muestra resultado de filtro.
+ */
+function renderCentrosCreditos(centros, solicitudes, isFiltered = false) {
+  const tbody = document.getElementById('centrosCreditosTableBody');
+  const countEl = document.getElementById('centrosCreditosResultCount');
+  if (!tbody) return;
+
+  tbody.innerHTML = '';
+  
+  if (countEl) {
+    if (isFiltered) {
+      countEl.textContent = `${centros.length} de ${CENTROS_CREDITOS_STATE.centros.length} centros`;
+    } else {
+      countEl.textContent = centros.length + ' centro' + (centros.length !== 1 ? 'es' : '');
+    }
+  }
+
+  if (centros.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:32px;color:var(--muted);">No se encontraron centros con los criterios de búsqueda.</td></tr>';
+    return;
+  }
+
+  // Mapear solicitudes por código de centro
+  const centroMap = {};
+  solicitudes.forEach(sol => {
+    const codes = (sol.centro_codigo || '').split(',').map(c => c.trim()).filter(Boolean);
+    codes.forEach(c => {
+      if (!centroMap[c]) centroMap[c] = [];
+      centroMap[c].push(sol);
+    });
+  });
+
+  // Renderizar filas de la tabla
+  centros.forEach(hRow => {
+    // Columnas del catálogo: 0: codigo, 1: nombre, 2: nit, 3: razon
+    const codigo = String(hRow[0] || '').trim();
+    const nombre = String(hRow[1] || '').trim();
+    const nit    = String(hRow[2] || '').trim();
+    const razon  = String(hRow[3] || '').trim();
+
+    const linkedSols = centroMap[codigo] || [];
+    
+    // Sumar el monto total de créditos aprobados vinculados a este centro
+    let totalAprobado = 0;
+    linkedSols.forEach(sol => {
+      if (sol.accion === 'APROBADA' || sol.accion === 'ACTIVA' || sol.accion === 'ACTIVO') {
+        totalAprobado += Number(sol.monto || 0);
+      }
+    });
+
+    const tr = document.createElement('tr');
+    
+    // 1. Código
+    const tdCod = document.createElement('td');
+    tdCod.className = 'td-mono td-main';
+    tdCod.textContent = codigo;
+    tr.appendChild(tdCod);
+
+    // 2. Nombre & Razón Social (Clicable para abrir modal de detalle)
+    const tdNom = document.createElement('td');
+    tdNom.style.cursor = 'pointer';
+    tdNom.title = 'Haga clic para ver detalles y solicitudes de este centro';
+    tdNom.onclick = () => abrirDetalleCentro(codigo);
+    tdNom.innerHTML = 
+      `<div class="td-main" style="font-size:13px; color: var(--navy2); font-weight: 700;">${escHtml(nombre)}</div>` +
+      (razon ? `<div class="td-mono td-muted" style="font-size:11px;">${escHtml(razon)} (NIT: ${escHtml(nit)})</div>` : '');
+    tdNom.onmouseover = () => { tdNom.querySelector('.td-main').style.textDecoration = 'underline'; };
+    tdNom.onmouseout = () => { tdNom.querySelector('.td-main').style.textDecoration = 'none'; };
+    tr.appendChild(tdNom);
+
+    // 3. Solicitudes vinculadas (como chips clicables de colores, limitados a 3 con chip extra)
+    const tdSols = document.createElement('td');
+    if (linkedSols.length === 0) {
+      tdSols.innerHTML = '<span class="td-muted">Ninguna solicitud vinculada</span>';
+    } else {
+      const containerDiv = document.createElement('div');
+      containerDiv.style.display = 'flex';
+      containerDiv.style.flexWrap = 'wrap';
+      containerDiv.style.gap = '6px';
+      
+      const maxChips = 3;
+      const visibleSols = linkedSols.slice(0, maxChips);
+      const extraSols = linkedSols.length - maxChips;
+
+      visibleSols.forEach(sol => {
+        const span = document.createElement('span');
+        const accCls = String(sol.accion || 'pendiente').toLowerCase().replace(/ /g, '-');
+        span.className = `linked-sol-chip linked-sol-${accCls}`;
+        span.title = `Razón Social: ${sol.razon_social} (${sol.accion})`;
+        span.innerHTML = `<strong>${escHtml(sol.codigo_solicitud)}</strong> (${(sol.monto && parseFloat(sol.monto) > 0) ? formatMoney(sol.monto, sol.moneda) : '—'})`;
+        span.onclick = () => abrirExpediente(sol.uuid);
+        containerDiv.appendChild(span);
+      });
+
+      if (extraSols > 0) {
+        const spanExtra = document.createElement('span');
+        spanExtra.className = 'linked-sol-chip';
+        spanExtra.style.background = 'var(--surface3)';
+        spanExtra.style.borderColor = 'var(--border2)';
+        spanExtra.style.fontWeight = '700';
+        spanExtra.style.color = 'var(--gold)';
+        spanExtra.style.cursor = 'pointer';
+        spanExtra.title = 'Haga clic para ver el desglose completo de solicitudes';
+        spanExtra.innerHTML = `Ver todas (+${extraSols})`;
+        spanExtra.onclick = (e) => {
+          e.stopPropagation();
+          abrirDetalleCentro(codigo);
+        };
+        containerDiv.appendChild(spanExtra);
+      }
+      tdSols.appendChild(containerDiv);
+    }
+    tr.appendChild(tdSols);
+
+    // 4. Total Aprobado
+    const tdTotal = document.createElement('td');
+    tdTotal.className = 'td-mono td-main';
+    tdTotal.style.textAlign = 'right';
+    tdTotal.style.paddingRight = '24px';
+    tdTotal.textContent = formatMoney(totalAprobado, 'COP');
+    tr.appendChild(tdTotal);
+
+    tbody.appendChild(tr);
+  });
+}
+
+/**
+ * Abre el modal con el detalle del centro y la lista completa de solicitudes.
+ *
+ * @param {string} codigo - Código único del centro.
+ */
+function abrirDetalleCentro(codigo) {
+  if (!codigo) return;
+  
+  // Buscar los datos del centro en el catálogo local
+  const centroRow = CENTROS_CREDITOS_STATE.centros.find(h => String(h[0] || '').trim() === codigo);
+  if (!centroRow) return;
+
+  const nombre = String(centroRow[1] || '').trim();
+  const nit    = String(centroRow[2] || '').trim();
+  const razon  = String(centroRow[3] || '').trim();
+  const correo = String(centroRow[4] || 'Sin correo de operaciones registrado').trim();
+
+  // Filtrar solicitudes vinculadas a este centro
+  const linkedSols = (CENTROS_CREDITOS_STATE.solicitudes || []).filter(sol => {
+    const codes = (sol.centro_codigo || '').split(',').map(c => c.trim()).filter(Boolean);
+    return codes.includes(codigo);
+  });
+
+  // Calcular total aprobado
+  let totalAprobado = 0;
+  linkedSols.forEach(sol => {
+    if (sol.accion === 'APROBADA' || sol.accion === 'ACTIVA' || sol.accion === 'ACTIVO') {
+      totalAprobado += Number(sol.monto || 0);
+    }
+  });
+
+  // Llenar campos en el modal
+  setText('mCentroCodigo', codigo);
+  setText('mCentroNombre', nombre);
+  setText('mCentroRazon', razon || '—');
+  setText('mCentroNit', nit || '—');
+  setText('mCentroCorreo', correo);
+  setText('mCentroTotalAprobado', formatMoney(totalAprobado, 'COP'));
+  setText('mCentroSolicitudesTitulo', `Solicitudes de Crédito Vinculadas (${linkedSols.length})`);
+
+  // Renderizar la lista de tarjetas en el panel
+  const tbody = document.getElementById('mCentroSolicitudesBody');
+  if (tbody) {
+    tbody.innerHTML = '';
+    if (linkedSols.length === 0) {
+      tbody.innerHTML = '<div style="text-align:center;padding:24px;color:var(--muted);font-size:13.5px;">No hay solicitudes vinculadas a este centro.</div>';
+    } else {
+      linkedSols.forEach(sol => {
+        const card = document.createElement('div');
+        card.className = 'linked-sol-card';
+        card.onclick = () => {
+          cerrarModalCentro();
+          abrirExpediente(sol.uuid);
+        };
+
+        card.innerHTML = `
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px;">
+            <div style="display: flex; flex-direction: column; text-align: left;">
+              <span style="font-size: 13.5px; font-weight: 700; color: var(--text);">${escHtml(sol.razon_social)}</span>
+              <span style="font-size: 11px; font-family: var(--font-mono); color: var(--muted); margin-top: 2px;">NIT: ${escHtml(sol.identificacion)}</span>
+            </div>
+            <span style="font-size: 12px; font-family: var(--font-mono); font-weight: 700; color: var(--navy2); background: rgba(72, 123, 113,0.1); padding: 2px 6px; border-radius: 4px;">${escHtml(sol.codigo_solicitud)}</span>
+          </div>
+          
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+            <div style="display: flex; gap: 6px;">
+              ${getTipoPill(sol.tipo_solicitud)}
+              ${getFilialPill(sol.es_filial)}
+              ${getBadgeHtml(sol.accion)}
+            </div>
+            <div style="font-size: 14px; font-weight: 700; color: var(--gold); font-family: var(--font-mono);">
+              ${(sol.monto && parseFloat(sol.monto) > 0) ? formatMoney(sol.monto, sol.moneda) : '—'}
+            </div>
+          </div>
+        `;
+
+        tbody.appendChild(card);
+      });
+    }
+  }
+
+  // Abrir modal
+  rmCls('modalCentroDetalle', 'hidden');
+}
+
+/**
+ * Cierra el modal de detalle de centro.
+ */
+function cerrarModalCentro() {
+  addCls('modalCentroDetalle', 'hidden');
+}
+</script>

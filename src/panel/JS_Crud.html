@@ -1,0 +1,901 @@
+<script>
+/* ─────────────────────────────────────────────────────────────────────────
+   JS_Crud.html — Gestión de la Base de Créditos (CREDITOS_BASE)
+   CupoFlow · Panel de Control y Administración - Solicitud de Créditos
+   ─────────────────────────────────────────────────────────────────────────
+   Vista de CRUD completo para la hoja CREDITOS_BASE.
+   Solo disponible para rol ADMIN.
+   ───────────────────────────────────────────────────────────────────────── */
+
+// Estado local del módulo
+const CRUD_STATE = {
+  creditos  : [],
+  editRowIdx: null,
+  filtros   : {},
+  pagina    : 1,
+  porPagina : 100,
+  total     : 0,
+  filtroPeriodo: { type: 'ALL' }
+};
+
+// ─── Cargar y renderizar ──────────────────────────────────────────────────────
+
+/**
+ * Carga los créditos desde el backend (volviendo a página 1).
+ * @param {boolean} [force] - Si true, bypasea el CacheService del backend.
+ */
+function cargarCrud(force) {
+  CRUD_STATE.pagina = 1;
+  cargarCentrosFiltroCrud();
+  _fetchCrudPage_(force);
+}
+
+/**
+ * Obtiene la página actual del backend con los filtros activos.
+ * @param {boolean} [force] - Si true, bypasea el CacheService.
+ */
+function _fetchCrudPage_(force) {
+  const token = STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '';
+  actualizarVisibilidadBotonLimpiarCrud();
+  const tbody   = document.getElementById('crudTableBody');
+  const countEl = document.getElementById('crudCount');
+
+  const busqueda     = document.getElementById('crudSearch')?.value?.trim() || '';
+  const estado       = document.getElementById('crudFilterEstado')?.value  || 'TODOS';
+  const centro        = document.getElementById('crudFilterCentro')?.value   || 'TODOS';
+  const vigencia     = document.getElementById('crudFilterVig')?.value     || 'TODOS';
+  const perfilCreado = document.getElementById('crudFilterPerfil')?.value  || 'TODOS';
+  
+  // Calcular fechas dinámicamente si es un período rápido
+  let fechaInicio = '';
+  let fechaFin = '';
+  if (CRUD_STATE.filtroPeriodo) {
+    if (CRUD_STATE.filtroPeriodo.type === 'CUSTOM') {
+      fechaInicio = document.getElementById('crudFilterFechaInicio')?.value || '';
+      fechaFin    = document.getElementById('crudFilterFechaFin')?.value    || '';
+    } else {
+      const dates = resolverFechasPorPeriodo(CRUD_STATE.filtroPeriodo.type);
+      fechaInicio = dates.inicio;
+      fechaFin    = dates.fin;
+    }
+  }
+
+  const filtros = {
+    busqueda, estado, centro, vigencia, perfilCreado,
+    fechaInicio, fechaFin,
+    pagina : CRUD_STATE.pagina,
+    limite : CRUD_STATE.porPagina
+  };
+  if (force) filtros._force = true;
+  CRUD_STATE.filtros = filtros;
+
+  // Mostrar skeleton y ocultar tabla
+  hide('tablaCreditosWrap');
+  show('tablaCreditosSkeleton');
+
+  google.script.run
+    .withSuccessHandler(result => {
+      hide('tablaCreditosSkeleton');
+      show('tablaCreditosWrap');
+      const creditos = result.data  || [];
+      const total    = result.total || 0;
+      CRUD_STATE.creditos = creditos;
+      CRUD_STATE.total    = total;
+      const text = `${total} registro${total !== 1 ? 's' : ''}`;
+      if (countEl) countEl.textContent = text;
+      const countBadge = document.getElementById('crudCountBadge');
+      if (countBadge) countBadge.textContent = `(${text})`;
+      renderCrudTabla(creditos, total);
+    })
+    .withFailureHandler(err => {
+      hide('tablaCreditosSkeleton');
+      show('tablaCreditosWrap');
+      showToast('Error al cargar créditos: ' + err.message, 'error');
+      if (tbody) tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--danger);">Error al cargar datos.</td></tr>';
+    })
+    .apiGetCreditos(token, filtros);
+}
+
+/**
+ * Carga la lista de centros únicos para el filtro del CRUD.
+ */
+function cargarCentrosFiltroCrud() {
+  const token = STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '';
+  google.script.run
+    .withSuccessHandler(centros => {
+      const sel = document.getElementById('crudFilterCentro');
+      if (!sel) return;
+      const current = sel.value;
+      sel.innerHTML = '<option value="TODOS">Todos los centros</option>';
+      const items = (centros || []).map(h => ({ code: h, text: getCentroRazon(h) || h }));
+      items.sort((a, b) => a.text.localeCompare(b.text, 'es', { sensitivity: 'base' }));
+      items.forEach(item => {
+        const opt = document.createElement('option');
+        opt.value = item.code;
+        opt.textContent = item.text;
+        if (item.code === current) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    })
+    .withFailureHandler(() => {})
+    .apiGetCentrosEnCreditos(token);
+}
+
+/**
+ * Renderiza la tabla del CRUD con los registros ya paginados del backend.
+ * @param {Array}  creditos - Página actual de créditos.
+ * @param {number} [total]  - Total de registros (para la barra de paginación).
+ */
+function renderCrudTabla(creditos, total) {
+  const tbody = document.getElementById('crudTableBody');
+  if (!tbody) return;
+
+  total = (total !== undefined ? total : CRUD_STATE.total) || 0;
+
+  if (!creditos.length) {
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;color:var(--muted);">No se encontraron registros.</td></tr>';
+    const pagEl = document.getElementById('pagCreditos');
+    if (pagEl) pagEl.innerHTML = '';
+    return;
+  }
+
+  tbody.innerHTML = creditos.map(c => {
+    let badgeE = '<span class="td-muted">—</span>';
+    if (c.estado_credito) {
+      let estadoLabel = c.estado_credito;
+      const estLower = c.estado_credito.toLowerCase();
+      if (estLower === 'activa' || estLower === 'activo') {
+        estadoLabel = 'Aprobada';
+      }
+      let cls = 'badge-approved';
+      if (estLower === 'vencido') cls = 'badge-rejected';
+      else if (estLower === 'por vencer') cls = 'badge-pending';
+      else if (estLower.includes('corporativo')) cls = 'badge-review';
+      else if (estLower.includes('gerencia')) cls = 'badge-pending';
+      badgeE = `<span class="badge ${cls}">${escHtml(estadoLabel)}</span>`;
+    }
+
+    let badgeV = '<span class="td-muted">—</span>';
+    if (c.vigencia_doc) {
+      const vigLower = c.vigencia_doc.toLowerCase();
+      let cls = 'badge-approved';
+      if (vigLower === 'no vigente') cls = 'badge-rejected';
+      else if (vigLower === 'por vencer') cls = 'badge-pending';
+      badgeV = `<span class="badge ${cls}" style="font-size:10px;">${escHtml(c.vigencia_doc)}</span>`;
+    }
+
+    return `<tr onclick="abrirModalCreditoDetalle('${c._rowIdx}')" style="cursor:pointer;">
+      <td class="col-id td-mono td-main" style="color:var(--muted);font-size:11px;">${escHtml(c.id)}</td>
+      <td class="col-empresa">
+        <div class="td-main" style="font-weight:700;font-size:13px;">${escHtml(c.razon_social) || '<span class="td-muted">Sin nombre</span>'}</div>
+        <div class="td-mono td-muted" style="font-size:11px;">NIT: ${escHtml(c.nit) || '—'}</div>
+      </td>
+      <td class="col-centro">${escHtml(c.centro) || '<span class="td-muted">—</span>'}</td>
+      <td class="col-monto td-mono td-main" style="color:var(--gold);font-weight:700;">${escHtml(c.monto) || '—'}</td>
+      <td class="col-fecha td-mono" style="font-size:12px;">${escHtml(c.fecha_aprobacion) || '—'}</td>
+      <td class="col-estado">${badgeE}</td>
+      <td class="col-fecha td-mono" style="font-size:12px;">${escHtml(c.fecha_venc_doc) || '—'}</td>
+      <td class="col-vigencia">${badgeV}</td>
+      <td class="col-factura" style="font-size:12px;" title="${escHtml(c.facturacion_electronica)}">${escHtml(c.facturacion_electronica) || '—'}</td>
+      <td class="col-novedades" style="font-size:12px;color:var(--muted);" title="${escHtml(c.novedades)}">${escHtml(c.novedades) || '<span class="td-muted">—</span>'}</td>
+      <td class="col-perfil" style="text-align:center;" onclick="event.stopPropagation();">
+        <input type="checkbox" class="perfil-creado-chk" data-rowidx="${c._rowIdx}" ${String(c.perfil_creado || '').toUpperCase() === 'TRUE' ? 'checked' : ''} onchange="togglePerfilCreadoCrud(this, '${c._rowIdx}')">
+      </td>
+      <td>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <button class="btn-action btn-edit" title="Editar" onclick="event.stopPropagation(); abrirModalCrud('${c._rowIdx}')" style="color:var(--gold);">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 20h9"/>
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+            </svg>
+          </button>
+          <button class="btn-action btn-del"  title="Eliminar" onclick="event.stopPropagation(); confirmarEliminarCredito('${c._rowIdx}','${escHtml(c.razon_social).replace(/'/g, "\\'")}')" style="color:var(--danger);">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              <line x1="10" y1="11" x2="10" y2="17"/>
+              <line x1="14" y1="11" x2="14" y2="17"/>
+            </svg>
+          </button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  renderBarraPaginacion('pagCreditos', total, CRUD_STATE.pagina, CRUD_STATE.porPagina, 'irPaginaCreditos', 'cambiarSizeCreditos');
+}
+
+function irPaginaCreditos(pagina) {
+  CRUD_STATE.pagina = pagina;
+  _fetchCrudPage_(false);
+}
+
+function cambiarSizeCreditos(size) {
+  CRUD_STATE.porPagina = size;
+  CRUD_STATE.pagina    = 1;
+  _fetchCrudPage_(false);
+}
+
+// ─── Modal CRUD ───────────────────────────────────────────────────────────────
+
+/**
+ * Abre el modal de creación/edición.
+ * @param {number|null} rowIdx - null = nuevo registro, number = editar existente
+ */
+function abrirModalCrud(rowIdx) {
+  CRUD_STATE.editRowIdx = rowIdx || null;
+  const isEdit = rowIdx !== null && rowIdx !== undefined;
+  const modal  = document.getElementById('modalCrud');
+  const title  = document.getElementById('modalCrudTitle');
+  if (!modal) return;
+
+  // Título
+  if (title) title.textContent = isEdit ? 'Editar Crédito' : 'Nuevo Crédito';
+
+  // Habilitar / Deshabilitar campos según modo
+  const razonSocialEl = document.getElementById('crud_razon_social');
+  const nitEl = document.getElementById('crud_nit');
+  const centroEl = document.getElementById('crud_centro');
+  const fechaAprobEl = document.getElementById('crud_fecha_aprobacion');
+  const aprobadoPorEl = document.getElementById('crud_aprobado_por');
+  const solicitadoPorEl = document.getElementById('crud_solicitado_por');
+
+  // Limpiar o poblar campos
+  const campos = ['razon_social','nit','centro','monto','fecha_aprobacion','estado_credito',
+                  'fecha_recibido_doc','fecha_venc_doc','vigencia_doc','facturacion_electronica',
+                  'aprobado_por','novedades','solicitado_por', 'razon_bloqueo', 'perfil_creado'];
+
+  if (isEdit) {
+    const c = CRUD_STATE.creditos.find(x => x._rowIdx === rowIdx);
+    if (!c) { showToast('Registro no encontrado.', 'error'); return; }
+    
+    // Deshabilitar campos clave en edición
+    if (razonSocialEl) { razonSocialEl.disabled = true; razonSocialEl.style.background = 'var(--surface3)'; razonSocialEl.style.color = 'var(--muted)'; }
+    if (nitEl) { nitEl.disabled = true; nitEl.style.background = 'var(--surface3)'; nitEl.style.color = 'var(--muted)'; }
+    if (centroEl) { centroEl.disabled = true; centroEl.style.background = 'var(--surface3)'; centroEl.style.color = 'var(--muted)'; }
+
+    campos.forEach(f => {
+      const el = document.getElementById('crud_' + f);
+      if (el) {
+        if (f === 'perfil_creado') {
+          el.checked = String(c[f] || '').toUpperCase() === 'TRUE';
+        } else if (f === 'centro') {
+          // No hacer nada, se maneja mediante cargarCentrosDropdownCrud
+        } else {
+          el.value = c[f] || '';
+        }
+      }
+    });
+
+    // Cargar centros y seleccionar el correcto
+    cargarCentrosDropdownCrud(c.centro_codigo);
+
+    // Mostrar/ocultar razon bloqueo según estado
+    const estVal = String(c.estado_credito || '');
+    const container = document.getElementById('crud_razon_bloqueo_container');
+    if (container) {
+      if (estVal.includes('Bloqueado')) {
+        container.style.display = 'flex';
+      } else {
+        container.style.display = 'none';
+      }
+    }
+  } else {
+    // Modo Creación
+    if (razonSocialEl) { razonSocialEl.disabled = false; razonSocialEl.style.background = 'var(--surface2)'; razonSocialEl.style.color = 'var(--text)'; }
+    if (nitEl) { nitEl.disabled = false; nitEl.style.background = 'var(--surface2)'; nitEl.style.color = 'var(--text)'; }
+    if (centroEl) { centroEl.disabled = false; centroEl.style.background = 'var(--surface2)'; centroEl.style.color = 'var(--text)'; }
+
+    campos.forEach(f => {
+      const el = document.getElementById('crud_' + f);
+      if (el) {
+        if (f === 'perfil_creado') {
+          el.checked = true;
+        } else {
+          el.value = '';
+        }
+      }
+    });
+
+    // Cargar centros
+    cargarCentrosDropdownCrud('');
+
+    // Defaults
+    if (aprobadoPorEl) aprobadoPorEl.value = 'Area de credito y cartera';
+    if (solicitadoPorEl) solicitadoPorEl.value = sessionStorage.getItem('hd_user_email') || 'creditos@example.com';
+    
+    // Colocar fecha aprobación actual
+    if (fechaAprobEl) {
+      const hoy = new Date();
+      const dd = String(hoy.getDate()).padStart(2, '0');
+      const mm = String(hoy.getMonth() + 1).padStart(2, '0');
+      const yyyy = hoy.getFullYear();
+      fechaAprobEl.value = `${dd}/${mm}/${yyyy}`;
+    }
+
+    const estEl = document.getElementById('crud_estado_credito');
+    if (estEl) estEl.value = 'Vigente';
+    const vigEl = document.getElementById('crud_vigencia_doc');
+    if (vigEl) vigEl.value = 'Vigente';
+    const container = document.getElementById('crud_razon_bloqueo_container');
+    if (container) container.style.display = 'none';
+  }
+
+  rmCls('modalCrud', 'hidden');
+}
+
+/** Cierra el modal de CRUD. */
+function cerrarModalCrud() {
+  addCls('modalCrud', 'hidden');
+  CRUD_STATE.editRowIdx = null;
+}
+
+/** Guarda el crédito (crear o actualizar). */
+function guardarCredito() {
+  const campos = ['razon_social','nit','centro','monto','fecha_aprobacion','estado_credito',
+                  'fecha_recibido_doc','fecha_venc_doc','vigencia_doc','facturacion_electronica',
+                  'aprobado_por','novedades','solicitado_por', 'razon_bloqueo', 'perfil_creado'];
+
+  const datos = {};
+  campos.forEach(f => {
+    const el = document.getElementById('crud_' + f);
+    if (el) {
+      if (f === 'monto') {
+        datos[f] = String(cleanFormattedNumber(el.value));
+      } else if (f === 'perfil_creado') {
+        datos[f] = el.checked ? 'TRUE' : 'FALSE';
+      } else {
+        datos[f] = el.value.trim();
+      }
+    } else {
+      datos[f] = '';
+    }
+  });
+
+  if (!datos.razon_social) { showToast('La razón social es obligatoria.', 'error'); return; }
+  if (!datos.centro)         { showToast('El centro es obligatorio.', 'error'); return; }
+
+  const saveBtn = document.getElementById('crudSaveBtn');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Guardando…'; }
+
+  const isEdit  = CRUD_STATE.editRowIdx !== null;
+  const token   = STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '';
+  const payload = { token, datos };
+
+  if (isEdit) {
+    payload.rowIdx = CRUD_STATE.editRowIdx;
+    google.script.run
+      .withSuccessHandler(res => {
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Guardar'; }
+        if (res.ok) {
+          cerrarModalCrud();
+          showToast('Crédito actualizado correctamente.', 'success');
+          cargarCrud(true);
+        } else {
+          showToast('Error: ' + (res.error || 'No se pudo actualizar.'), 'error');
+        }
+      })
+      .withFailureHandler(err => {
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Guardar'; }
+        showToast('Error: ' + err.message, 'error');
+      })
+      .apiActualizarCredito(payload);
+  } else {
+    google.script.run
+      .withSuccessHandler(res => {
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Guardar'; }
+        if (res.ok) {
+          cerrarModalCrud();
+          showToast('Crédito creado correctamente.', 'success');
+          cargarCrud(true);
+        } else {
+          showToast('Error: ' + (res.error || 'No se pudo crear.'), 'error');
+        }
+      })
+      .withFailureHandler(err => {
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Guardar'; }
+        showToast('Error: ' + err.message, 'error');
+      })
+      .apiCrearCredito(payload);
+  }
+}
+
+/** Solicita confirmación antes de eliminar. */
+function confirmarEliminarCredito(rowIdx, nombre) {
+  mostrarModalConfirmacion({
+    titulo         : 'Eliminar crédito',
+    mensaje        : `¿Estás seguro de eliminar el crédito de <strong>${escHtml(nombre)}</strong>? Esta acción no se puede deshacer.`,
+    btnAceptarText : 'Sí, eliminar',
+    colorTheme     : 'danger',
+    isLg           : false,
+    onAceptar      : () => eliminarCredito(rowIdx)
+  });
+}
+
+/** Elimina un crédito por su rowIdx. */
+function eliminarCredito(rowIdx) {
+  cerrarModalConfirm();
+  const token   = STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '';
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res.ok) {
+        showToast('Crédito eliminado correctamente.', 'success');
+        cargarCrud(true);
+      } else {
+        showToast('Error al eliminar: ' + (res.error || ''), 'error');
+      }
+    })
+    .withFailureHandler(err => {
+      showToast('Error: ' + err.message, 'error');
+    })
+    .apiEliminarCredito({ token, rowIdx });
+}
+
+/** Limpia los filtros y recarga la vista. */
+function limpiarFiltrosCrud() {
+  CRUD_STATE.filtroPeriodo = { type: 'ALL' };
+
+  const search = document.getElementById('crudSearch');
+  const centro = document.getElementById('crudFilterCentro');
+  const estado = document.getElementById('crudFilterEstado');
+  const vig = document.getElementById('crudFilterVig');
+  const perf = document.getElementById('crudFilterPerfil');
+  const periodSel = document.getElementById('crudFilterPeriodo');
+  const fIni = document.getElementById('crudFilterFechaInicio');
+  const fFin = document.getElementById('crudFilterFechaFin');
+  const customDiv = document.getElementById('crudCustomDates');
+
+  if (search) search.value = '';
+  if (centro) centro.value = 'TODOS';
+  if (estado) estado.value = 'TODOS';
+  if (vig) vig.value = 'TODOS';
+  if (perf) perf.value = 'TODOS';
+  if (periodSel) periodSel.value = 'ALL';
+  if (fIni) fIni.value = '';
+  if (fFin) fFin.value = '';
+  if (customDiv) customDiv.style.display = 'none';
+
+  cargarCrud();
+}
+
+/** Filtro por rango de período rápido de créditos. */
+function cambiarPeriodoCrud(val) {
+  const customDiv = document.getElementById('crudCustomDates');
+  if (val === 'CUSTOM') {
+    if (customDiv) customDiv.style.display = 'inline-flex';
+  } else {
+    if (customDiv) customDiv.style.display = 'none';
+    CRUD_STATE.filtroPeriodo = { type: val };
+    cargarCrud();
+  }
+}
+
+/** Filtro por rango de fechas personalizadas de créditos. */
+function aplicarFechasPersonalizadasCrud() {
+  const inicio = document.getElementById('crudFilterFechaInicio').value;
+  const fin = document.getElementById('crudFilterFechaFin').value;
+  
+  if (inicio && fin) {
+    if (new Date(inicio) > new Date(fin)) {
+      showToast('La fecha de inicio no puede ser posterior a la fecha de fin', 'error');
+      return;
+    }
+    CRUD_STATE.filtroPeriodo = {
+      type: 'CUSTOM',
+      inicio: inicio,
+      fin: fin
+    };
+    cargarCrud();
+  }
+}
+
+/** Muestra u oculta el botón de limpiar filtros (bote de basura) según si hay filtros aplicados. */
+function actualizarVisibilidadBotonLimpiarCrud() {
+  const btn = document.getElementById('btnLimpiarFiltrosCrud');
+  if (!btn) return;
+
+  const busqueda = document.getElementById('crudSearch')?.value?.trim() || '';
+  const estado = document.getElementById('crudFilterEstado')?.value || 'TODOS';
+  const centro = document.getElementById('crudFilterCentro')?.value || 'TODOS';
+  const vigencia = document.getElementById('crudFilterVig')?.value || 'TODOS';
+  const perfil = document.getElementById('crudFilterPerfil')?.value || 'TODOS';
+
+  const tieneFiltros =
+    (busqueda !== '') ||
+    (estado !== 'TODOS') ||
+    (centro !== 'TODOS') ||
+    (vigencia !== 'TODOS') ||
+    (perfil !== 'TODOS') ||
+    (CRUD_STATE.filtroPeriodo && CRUD_STATE.filtroPeriodo.type !== 'ALL');
+
+  btn.style.display = tieneFiltros ? 'inline-flex' : 'none';
+}
+
+/**
+ * Resuelve las fechas de inicio y fin para los rangos preestablecidos.
+ */
+function resolverFechasPorPeriodo(val) {
+  const ahora = new Date();
+  let inicio = '';
+  let fin = '';
+
+  if (val === 'HOY') {
+    const yyyy = ahora.getFullYear();
+    const mm = String(ahora.getMonth() + 1).padStart(2, '0');
+    const dd = String(ahora.getDate()).padStart(2, '0');
+    inicio = `${yyyy}-${mm}-${dd}`;
+    fin = `${yyyy}-${mm}-${dd}`;
+  } else if (val === 'ESTA_SEMANA') {
+    const day = ahora.getDay();
+    const diff = ahora.getDate() - day + (day === 0 ? -6 : 1); // lunes
+    const lunes = new Date(ahora.setDate(diff));
+    const domingo = new Date(lunes);
+    domingo.setDate(lunes.getDate() + 6);
+    
+    const y1 = lunes.getFullYear();
+    const m1 = String(lunes.getMonth() + 1).padStart(2, '0');
+    const d1 = String(lunes.getDate()).padStart(2, '0');
+    inicio = `${y1}-${m1}-${d1}`;
+    
+    const y2 = domingo.getFullYear();
+    const m2 = String(domingo.getMonth() + 1).padStart(2, '0');
+    const d2 = String(domingo.getDate()).padStart(2, '0');
+    fin = `${y2}-${m2}-${d2}`;
+  } else if (val === 'ESTE_MES') {
+    const y = ahora.getFullYear();
+    const m = ahora.getMonth();
+    
+    const primerDia = new Date(y, m, 1);
+    const ultimoDia = new Date(y, m + 1, 0);
+    
+    const y1 = primerDia.getFullYear();
+    const m1 = String(primerDia.getMonth() + 1).padStart(2, '0');
+    const d1 = String(primerDia.getDate()).padStart(2, '0');
+    inicio = `${y1}-${m1}-${d1}`;
+    
+    const y2 = ultimoDia.getFullYear();
+    const m2 = String(ultimoDia.getMonth() + 1).padStart(2, '0');
+    const d2 = String(ultimoDia.getDate()).padStart(2, '0');
+    fin = `${y2}-${m2}-${d2}`;
+  } else if (val === 'ESTE_ANO') {
+    const y = ahora.getFullYear();
+    inicio = `${y}-01-01`;
+    fin = `${y}-12-31`;
+  }
+  
+  return { inicio, fin };
+}
+
+// ─── Exportación de Créditos ─────────────────────────────────────────────────
+
+function toggleExportCreditosDropdown(event) {
+  if (event) event.stopPropagation();
+  const dropdown = document.getElementById('crudExportDropdown');
+  if (dropdown) dropdown.classList.toggle('show');
+}
+
+// Cerrar dropdown al hacer click fuera
+document.addEventListener('click', () => {
+  const dropdown = document.getElementById('crudExportDropdown');
+  if (dropdown) dropdown.classList.remove('show');
+});
+
+function exportarCreditosExcel(event) {
+  if (event) event.preventDefault();
+  const token = STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '';
+  const dropdown = document.getElementById('crudExportDropdown');
+  if (dropdown) dropdown.classList.remove('show');
+
+  showLoading();
+  google.script.run
+    .withSuccessHandler(res => {
+      hideLoading();
+      if (res && res.ok && res.url) {
+        window.open(res.url, '_blank');
+        showToast('Base de créditos en Excel generada y descargada correctamente', 'success');
+      } else {
+        showToast('Error al exportar créditos a Excel', 'error');
+      }
+    })
+    .withFailureHandler(err => {
+      hideLoading();
+      showToast('Error al exportar créditos: ' + err.message, 'error');
+    })
+    .apiExportarCreditosExcel(token, CRUD_STATE.filtros);
+}
+
+function exportarCSVCrud(event) {
+  if (event) event.preventDefault();
+  const token = STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '';
+  const dropdown = document.getElementById('crudExportDropdown');
+  if (dropdown) dropdown.classList.remove('show');
+
+  showLoading();
+  google.script.run
+    .withSuccessHandler(csvData => {
+      hideLoading();
+      if (csvData) {
+        const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a");
+        const d = new Date();
+        const dateStr = d.getFullYear() +
+          String(d.getMonth() + 1).padStart(2, '0') +
+          String(d.getDate()).padStart(2, '0') + '_' +
+          String(d.getHours()).padStart(2, '0') +
+          String(d.getMinutes()).padStart(2, '0') +
+          String(d.getSeconds()).padStart(2, '0');
+        link.href = URL.createObjectURL(blob);
+        link.setAttribute("download", "Cuadra_Export_Base_Creditos_" + dateStr + ".csv");
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        showToast('Reporte CSV descargado correctamente', 'success');
+      }
+    })
+    .withFailureHandler(err => {
+      hideLoading();
+      showToast('Error al exportar a CSV: ' + err.message, 'error');
+    })
+    .apiExportarCreditosCSV(token, CRUD_STATE.filtros);
+}
+
+/**
+ * Abre el panel lateral con los detalles del crédito.
+ * @param {string} rowIdx - Identificador del crédito.
+ */
+function abrirModalCreditoDetalle(rowIdx) {
+  const c = CRUD_STATE.creditos.find(x => x._rowIdx === rowIdx);
+  if (!c) { showToast('Crédito no encontrado.', 'error'); return; }
+
+  setText('mCreditoId', c.id);
+  setText('mCreditoNit', c.nit || '—');
+  setText('mCreditoRazonSocial', c.razon_social || '—');
+  setText('mCreditoCentro', c.centro || '—');
+  setText('mCreditoMonto', c.monto || '—');
+  setText('mCreditoFechaAprobacion', c.fecha_aprobacion || '—');
+  setText('mCreditoFechaRecibido', c.fecha_recibido_doc || '—');
+  setText('mCreditoFechaVencimiento', c.fecha_venc_doc || '—');
+  setText('mCreditoAprobadoPor', c.aprobado_por || '—');
+  setText('mCreditoSolicitadoPor', c.solicitado_por || '—');
+  setText('mCreditoNovedades', c.novedades || '—');
+  setText('mCreditoFacturacion', c.facturacion_electronica || '—');
+
+  // Perfil Creado
+  const pcVal = String(c.perfil_creado || 'FALSE').toUpperCase() === 'TRUE';
+  const pcEl = document.getElementById('mCreditoPerfilCreado');
+  if (pcEl) {
+    pcEl.innerHTML = pcVal 
+      ? '<span style="color:var(--success); font-weight:700;">✓ Sí</span>' 
+      : '<span style="color:var(--muted);">✗ No</span>';
+  }
+
+  // Razón de bloqueo
+  const razonBloqueoContainer = document.getElementById('mCreditoRazonBloqueoContainer');
+  if (razonBloqueoContainer) {
+    const estLower = String(c.estado_credito || '').toLowerCase();
+    const esBloqueado = estLower.includes('bloqueado');
+    if (esBloqueado) {
+      setText('mCreditoRazonBloqueo', c.razon_bloqueo || 'Sin justificación registrada.');
+      razonBloqueoContainer.style.display = 'block';
+    } else {
+      razonBloqueoContainer.style.display = 'none';
+    }
+  }
+
+  // Badges
+  const badgeEContainer = document.getElementById('mCreditoEstadoBadge');
+  if (badgeEContainer) {
+    let cls = 'badge-approved';
+    let estadoLabel = c.estado_credito || '';
+    const estLower = String(estadoLabel).toLowerCase();
+    if (estLower === 'activa' || estLower === 'activo') {
+      estadoLabel = 'Aprobada';
+    }
+    if (estLower === 'vencido') cls = 'badge-rejected';
+    else if (estLower === 'por vencer') cls = 'badge-pending';
+    else if (estLower.includes('corporativo')) cls = 'badge-review';
+    else if (estLower.includes('gerencia')) cls = 'badge-pending';
+    badgeEContainer.innerHTML = `<span class="badge ${cls}">${escHtml(estadoLabel)}</span>`;
+  }
+
+  const badgeVContainer = document.getElementById('mCreditoVigenciaBadge');
+  if (badgeVContainer) {
+    let cls = 'badge-approved';
+    const vigLower = String(c.vigencia_doc || '').toLowerCase();
+    if (vigLower === 'no vigente') cls = 'badge-rejected';
+    else if (vigLower === 'por vencer') cls = 'badge-pending';
+    badgeVContainer.innerHTML = `<span class="badge ${cls}">${escHtml(c.vigencia_doc)}</span>`;
+  }
+
+  // Configurar botón de edición del drawer
+  const editBtn = document.getElementById('btnEditarCreditoDrawer');
+  if (editBtn) {
+    editBtn.onclick = (e) => {
+      e.stopPropagation();
+      cerrarModalCreditoDetalle();
+      abrirModalCrud(rowIdx);
+    };
+  }
+
+  rmCls('modalCreditoDetalle', 'hidden');
+}
+
+/** Cierra el panel lateral de detalles del crédito. */
+function cerrarModalCreditoDetalle() {
+  addCls('modalCreditoDetalle', 'hidden');
+}
+
+// Configurar toggle dinámico de la razón de bloqueo al cambiar select
+document.addEventListener('DOMContentLoaded', () => {
+  const selectEst = document.getElementById('crud_estado_credito');
+  if (selectEst) {
+    selectEst.addEventListener('change', function() {
+      const val = this.value;
+      const container = document.getElementById('crud_razon_bloqueo_container');
+      if (container) {
+        if (val.includes('Bloqueado')) {
+          container.style.display = 'flex';
+        } else {
+          container.style.display = 'none';
+        }
+      }
+    });
+  }
+});
+
+function togglePerfilCreadoCrud(chk, rowIdx) {
+  const isChecked = chk.checked;
+  // Revertir temporalmente en la interfaz hasta que confirme
+  chk.checked = !isChecked;
+
+  mostrarModalConfirmacion({
+    titulo: 'Confirmar cambio de perfil',
+    mensaje: `¿Estás seguro de que deseas marcar este perfil como <strong>${isChecked ? 'Creado' : 'No Creado'}</strong>?`,
+    btnAceptarText: 'Confirmar',
+    onAceptar: () => {
+      cerrarModalConfirm();
+      chk.checked = isChecked; // Aplicar cambio en UI
+      chk.disabled = true; // Deshabilitar temporalmente
+      const token = STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '';
+
+      google.script.run
+        .withSuccessHandler(res => {
+          chk.disabled = false;
+          if (res.ok) {
+            showToast('Estado de perfil creado actualizado.', 'success');
+            if (typeof CRUD_STATE !== 'undefined' && CRUD_STATE.creditos) {
+              const c = CRUD_STATE.creditos.find(x => x._rowIdx === rowIdx);
+              if (c) c.perfil_creado = isChecked ? 'TRUE' : 'FALSE';
+            }
+          } else {
+            chk.checked = !isChecked; // Revertir
+            showToast('Error al actualizar perfil creado: ' + (res.error || ''), 'error');
+          }
+        })
+        .withFailureHandler(err => {
+          chk.disabled = false;
+          chk.checked = !isChecked; // Revertir
+          showToast('Error de conexión: ' + err.message, 'error');
+        })
+        .apiTogglePerfilCreado({ token: token, rowIdx: rowIdx, checked: isChecked });
+    },
+    onCancelar: () => {
+      // No hacer nada, se queda revertido
+    }
+  });
+}
+
+/**
+ * Carga todos los centros en el select de creación/edición.
+ */
+function cargarCentrosDropdownCrud(selectedCode) {
+  const token = STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '';
+  const select = document.getElementById('crud_centro');
+  if (!select) return;
+
+  if (select.options.length > 1 && select.dataset.loaded === 'true') {
+    select.value = selectedCode || '';
+    return;
+  }
+
+  select.innerHTML = '<option value="">Cargando centros...</option>';
+
+  google.script.run
+    .withSuccessHandler(centros => {
+      select.innerHTML = '<option value="">Seleccione un centro...</option>';
+      const items = (centros || []).map(h => ({
+        codigo: h.codigo,
+        label: (h.razon || h.nombre || h.codigo)
+      }));
+      items.sort((a, b) => a.label.localeCompare(b.label, 'es', { sensitivity: 'base' }));
+      items.forEach(item => {
+        const opt = document.createElement('option');
+        opt.value = item.codigo;
+        opt.textContent = item.label;
+        select.appendChild(opt);
+      });
+      select.dataset.loaded = 'true';
+      select.value = selectedCode || '';
+    })
+    .withFailureHandler(err => {
+      select.innerHTML = '<option value="">Error al cargar centros</option>';
+      showToast('Error al cargar catálogo de centros: ' + err.message, 'error');
+    })
+    .apiGetTodosCentros(token);
+}
+
+/**
+ * Abre la confirmación para procesar la plantilla de importación.
+ */
+function abrirConfirmacionImportacion() {
+  const token = STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '';
+
+  showLoading();
+  google.script.run
+    .withSuccessHandler(res => {
+      hideLoading();
+      if (!res.ok) {
+        showToast('Error al verificar plantilla: ' + (res.error || 'Intente de nuevo.'), 'error');
+        return;
+      }
+
+      if (res.pendientes === 0) {
+        mostrarModalConfirmacion({
+          titulo         : 'Importar créditos masivos',
+          mensaje        : `No se encontraron registros pendientes para procesar en la hoja de plantilla. (Total filas: ${res.total}, Procesadas: ${res.procesadas}, Errores previos: ${res.errores}).`,
+          btnAceptarText : 'Cerrar',
+          colorTheme     : 'info',
+          isLg           : false,
+          onAceptar      : () => cerrarModalConfirm()
+        });
+        return;
+      }
+
+      mostrarModalConfirmacion({
+        titulo         : 'Importar créditos masivos',
+        mensaje        : `Se detectaron <strong>${res.pendientes}</strong> registros pendientes de procesamiento en la hoja <strong>PLANTILLA_IMPORTAR_CREDITOS</strong>.<br><br>¿Deseas iniciar el proceso de importación masiva y sincronización SQL?`,
+        btnAceptarText : 'Sí, iniciar importación',
+        colorTheme     : 'primary',
+        isLg           : false,
+        onAceptar      : () => {
+          cerrarModalConfirm();
+          ejecutarImportacionMasiva(token);
+        }
+      });
+    })
+    .withFailureHandler(err => {
+      hideLoading();
+      showToast('Error al verificar plantilla: ' + err.message, 'error');
+    })
+    .apiGetPlantillaStats({ token });
+}
+
+/**
+ * Ejecuta la importación masiva mostrando la barra de carga por pasos.
+ */
+function ejecutarImportacionMasiva(token) {
+  const steps = [
+    'Validando registros de la plantilla',
+    'Unificando cupos por empresa (NIT)',
+    'Sincronizando con base de datos SQL y Google Sheets'
+  ];
+
+  PROCESS_LOADER.show('Procesando Importación Masiva', steps, true);
+
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res.ok) {
+        PROCESS_LOADER.complete(() => {
+          showToast(res.mensaje || 'Importación completada correctamente.', 'success');
+          cargarCrud();
+        });
+      } else {
+        PROCESS_LOADER.fail(res.error || 'No se pudo completar la importación.');
+      }
+    })
+    .withFailureHandler(err => {
+      PROCESS_LOADER.fail(err.message || 'Error de conexión con el servidor.');
+    })
+    .apiProcesarPlantillaImportacion({ token });
+}
+</script>

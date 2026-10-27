@@ -1,0 +1,349 @@
+<script>
+/* ─────────────────────────────────────────────────────────────────────────
+   JS_Configuracion.html — Gestor de hojas de configuración
+   CupoFlow · Panel de Control y Administración - Solicitud de Créditos
+   ───────────────────────────────────────────────────────────────────────── */
+
+// ─── Estado local del catálogo ───────────────────────────────────────────────
+const CONFIG_STATE = {
+  sheetSelected : 'Comerciales',
+  headers       : [],
+  rows          : [],
+  idCol         : '', // columna clave primaria (ej: 'codigo' o 'correo')
+  editIdVal     : null // valor clave del registro que se está editando
+};
+
+/** Mapea el nombre de la hoja a su columna clave primaria */
+const CONFIG_KEYS = {
+  Comerciales      : 'correo',
+  Centros          : 'codigo',
+  Operaciones_Centros : 'codigo',
+  Monedas          : 'codigo',
+  TiposDocumento   : 'codigo',
+  TiposSolicitud   : 'codigo'
+};
+
+/** Mapea nombres de hojas a títulos legibles */
+const CONFIG_TITLES = {
+  Comerciales      : 'Ejecutivos Comerciales',
+  Centros          : 'Centros (Catálogo General)',
+  Operaciones_Centros : 'Operaciones de Centros (Correos)',
+  Monedas          : 'Monedas',
+  TiposDocumento   : 'Tipos de Documento',
+  TiposSolicitud   : 'Tipos de Solicitud'
+};
+
+// ─── Controlador de Tabs de Catálogo ─────────────────────────────────────────
+
+/** Activa el tab seleccionado y recarga los datos del catálogo */
+function selectCatalogTab(el) {
+  document.querySelectorAll('.catalog-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  const hiddenInput = document.getElementById('configSheetSelect');
+  if (hiddenInput) hiddenInput.value = el.dataset.value;
+  onConfigSheetSelected();
+}
+
+// ─── Carga de datos ──────────────────────────────────────────────────────────
+
+/** Llamado cuando se cambia el catálogo seleccionado en el select dropdown */
+function onConfigSheetSelected() {
+  const select = document.getElementById('configSheetSelect');
+  if (!select) return;
+
+  const sheet = select.value;
+  const token = STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '';
+  CONFIG_STATE.sheetSelected = sheet;
+  CONFIG_STATE.idCol         = CONFIG_KEYS[sheet] || 'codigo';
+  CONFIG_STATE.editIdVal     = null;
+
+  setText('configTableTitle', CONFIG_TITLES[sheet] || 'Registros');
+
+  // Mostrar loading
+  show('configTableSkeleton');
+  hide('configTableWrap');
+  showLoading();
+
+  google.script.run
+    .withSuccessHandler(res => {
+      hideLoading();
+      hide('configTableSkeleton');
+      show('configTableWrap');
+
+      CONFIG_STATE.headers = res.headers || [];
+      CONFIG_STATE.rows    = res.rows || [];
+
+      renderConfigTable();
+    })
+    .withFailureHandler(err => {
+      hideLoading();
+      hide('configTableSkeleton');
+      show('configTableWrap');
+      showToast('Error al cargar la configuración: ' + err.message, 'error');
+    })
+    .apiGetConfiguracion(token, sheet);
+}
+
+// ─── Render de la tabla ───────────────────────────────────────────────────────
+
+/** Renderiza dinámicamente la tabla con los encabezados y filas cargadas */
+function renderConfigTable() {
+  const head = document.getElementById('configTableHead');
+  const body = document.getElementById('configTableBody');
+  const count = document.getElementById('configResultCount');
+
+  if (!head || !body) return;
+
+  head.innerHTML = '';
+  body.innerHTML = '';
+
+  const headers = CONFIG_STATE.headers;
+  const rows = CONFIG_STATE.rows;
+
+  if (headers.length === 0) {
+    head.innerHTML = '<tr><th>Sin datos</th></tr>';
+    body.innerHTML = '<tr><td style="text-align:center;padding:20px;color:var(--muted);">No hay columnas configuradas para esta hoja.</td></tr>';
+    if (count) count.textContent = '0 registros';
+    return;
+  }
+
+  if (count) count.textContent = `${rows.length} ${rows.length === 1 ? 'registro' : 'registros'}`;
+
+  // 1. Renderizar encabezados (+ columna acciones)
+  const thr = document.createElement('tr');
+  headers.forEach(h => {
+    const th = document.createElement('th');
+    th.textContent = h.toUpperCase();
+    thr.appendChild(th);
+  });
+  const thActions = document.createElement('th');
+  thActions.className = 'col-actions';
+  thActions.textContent = 'Acciones';
+  thr.appendChild(thActions);
+  head.appendChild(thr);
+
+  // 2. Renderizar filas de datos
+  if (rows.length === 0) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = headers.length + 1;
+    td.style.textAlign = 'center';
+    td.style.padding = '24px';
+    td.style.color = 'var(--muted)';
+    td.textContent = 'No hay registros en este catálogo.';
+    tr.appendChild(td);
+    body.appendChild(tr);
+    return;
+  }
+
+  rows.forEach((row, rowIdx) => {
+    const tr = document.createElement('tr');
+    
+    // Buscar el valor de la clave primaria para este registro
+    const keyColIdx = headers.indexOf(CONFIG_STATE.idCol);
+    const idVal = keyColIdx !== -1 ? String(row[keyColIdx] || '').trim() : '';
+
+    headers.forEach((h, colIdx) => {
+      const td = document.createElement('td');
+      td.textContent = String(row[colIdx] !== undefined ? row[colIdx] : '').trim();
+      if (h === CONFIG_STATE.idCol) {
+        td.className = 'td-mono td-main';
+      }
+      tr.appendChild(td);
+    });
+
+    // Celda de acciones
+    const tdAct = document.createElement('td');
+    tdAct.className = 'col-actions';
+
+    const btnWrapper = document.createElement('div');
+    btnWrapper.style.display = 'flex';
+    btnWrapper.style.gap = '6px';
+    btnWrapper.style.justifyContent = 'center';
+    btnWrapper.style.alignItems = 'center';
+
+    const btnEdit = document.createElement('button');
+    btnEdit.className = 'btn-row';
+    btnEdit.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:12px;height:12px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      Editar
+    `;
+    btnEdit.onclick = () => abrirConfigFormModal(rowIdx);
+
+    const btnDel = document.createElement('button');
+    btnDel.className = 'btn-row';
+    btnDel.style.borderColor = 'var(--danger-border)';
+    btnDel.style.color = 'var(--danger)';
+    btnDel.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:12px;height:12px;"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+      Eliminar
+    `;
+    btnDel.onclick = () => eliminarRegistroConfig(idVal);
+
+    btnWrapper.appendChild(btnEdit);
+    btnWrapper.appendChild(btnDel);
+    tdAct.appendChild(btnWrapper);
+    tr.appendChild(tdAct);
+
+    body.appendChild(tr);
+  });
+}
+
+// ─── Modal Formulario ────────────────────────────────────────────────────────
+
+/**
+ * Abre el modal dinámico de creación/edición de registros.
+ *
+ * @param {number} [rowIdx] - Índice de la fila a editar (si se edita).
+ */
+function abrirConfigFormModal(rowIdx) {
+  const container = document.getElementById('configFormInputs');
+  const title = document.getElementById('configFormTitle');
+
+  if (!container || !title) return;
+
+  container.innerHTML = '';
+  const headers = CONFIG_STATE.headers;
+
+  const isEdit = rowIdx !== undefined && rowIdx !== null;
+  title.textContent = isEdit ? `Editar en ${CONFIG_STATE.sheetSelected}` : `Nuevo en ${CONFIG_STATE.sheetSelected}`;
+
+  let rowData = null;
+  if (isEdit) {
+    rowData = CONFIG_STATE.rows[rowIdx];
+    const keyColIdx = headers.indexOf(CONFIG_STATE.idCol);
+    CONFIG_STATE.editIdVal = keyColIdx !== -1 ? String(rowData[keyColIdx] || '').trim() : null;
+  } else {
+    CONFIG_STATE.editIdVal = null;
+  }
+
+  // Generar inputs dinámicamente según encabezados
+  headers.forEach((h, idx) => {
+    const wrapper = document.createElement('div');
+    wrapper.style.display = 'flex';
+    wrapper.style.flexDirection = 'column';
+    wrapper.style.gap = '4px';
+
+    const label = document.createElement('label');
+    label.style.fontSize = '12px';
+    label.style.fontWeight = '600';
+    label.style.color = 'var(--text2)';
+    label.textContent = h.toUpperCase() + (h === CONFIG_STATE.idCol ? ' (Clave Única)' : '');
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.name = h;
+    input.id = 'cfgInput_' + h;
+    input.style.width = '100%';
+    input.style.padding = '8px 10px';
+    input.style.border = '1px solid var(--border2)';
+    input.style.borderRadius = 'var(--radius-sm)';
+    input.style.background = 'var(--surface2)';
+    input.style.color = 'var(--text)';
+    input.style.fontFamily = "'Outfit', sans-serif";
+    input.style.fontSize = '13px';
+
+    if (isEdit && rowData) {
+      input.value = String(rowData[idx] !== undefined ? rowData[idx] : '').trim();
+      // Si es la columna ID clave, deshabilitarla en edición para que no cambien el ID principal
+      if (h === CONFIG_STATE.idCol) {
+        input.disabled = true;
+        input.style.opacity = '0.6';
+        input.style.cursor = 'not-allowed';
+      }
+    }
+
+    wrapper.appendChild(label);
+    wrapper.appendChild(input);
+    container.appendChild(wrapper);
+  });
+
+  rmCls('modalConfiguracion', 'hidden');
+}
+
+/** Cierra el modal de formulario de configuración */
+function cerrarConfigFormModal() {
+  addCls('modalConfiguracion', 'hidden');
+  CONFIG_STATE.editIdVal = null;
+}
+
+// ─── Guardar y Eliminar ──────────────────────────────────────────────────────
+
+/** Recopila los valores de los inputs y los envía al backend para guardar */
+function guardarRegistroConfig() {
+  const token = STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '';
+  const headers = CONFIG_STATE.headers;
+  const sheet = CONFIG_STATE.sheetSelected;
+  const idCol = CONFIG_STATE.idCol;
+  const idVal = CONFIG_STATE.editIdVal;
+
+  const datos = {};
+  let valid = true;
+
+  // Validar y recopilar
+  headers.forEach(h => {
+    const input = document.getElementById('cfgInput_' + h);
+    if (input) {
+      const val = (input.value || '').trim();
+      if (!val) {
+        showToast(`El campo ${h} es obligatorio.`, 'warning');
+        valid = false;
+      }
+      datos[h] = val;
+    }
+  });
+
+  if (!valid) return;
+
+  cerrarConfigFormModal();
+
+  // Mostrar cargador detallado
+  const actionTitle = idVal ? 'Actualizando Registro' : 'Creando Registro';
+  PROCESS_LOADER.show(actionTitle, ['Guardando datos en el catálogo...', 'Aplicando cambios en la base de datos...'], true);
+
+  google.script.run
+    .withSuccessHandler(() => {
+      PROCESS_LOADER.complete(() => {
+        showToast('Registro guardado correctamente.', 'success');
+        onConfigSheetSelected(); // recargar
+      });
+    })
+    .withFailureHandler(err => {
+      PROCESS_LOADER.fail(err.message || 'Error al guardar el registro.');
+    })
+    .apiGuardarConfiguracion(token, sheet, datos, idCol, idVal);
+}
+
+/**
+ * Solicita confirmación y envía la instrucción de eliminar al backend.
+ *
+ * @param {string} idVal - Valor identificador del registro a eliminar.
+ */
+function eliminarRegistroConfig(idVal) {
+  if (!idVal) return;
+  const token = STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '';
+
+  mostrarModalConfirmacion({
+    titulo: 'Eliminar registro',
+    mensaje: `¿Estás seguro de eliminar el registro con clave <strong>"${escHtml(idVal)}"</strong> en el catálogo <strong>${escHtml(CONFIG_STATE.sheetSelected)}</strong>? Esta acción no se puede deshacer.`,
+    btnAceptarText: 'Sí, eliminar registro',
+    colorTheme: 'danger',
+    onAceptar: () => {
+      cerrarModalConfirm();
+      PROCESS_LOADER.show('Eliminando Registro', ['Buscando registro en la base de datos...', 'Removiendo fila de la hoja de cálculo...'], true);
+
+      google.script.run
+        .withSuccessHandler(() => {
+          PROCESS_LOADER.complete(() => {
+            showToast('Registro eliminado con éxito.', 'success');
+            onConfigSheetSelected(); // recargar
+          });
+        })
+        .withFailureHandler(err => {
+          PROCESS_LOADER.fail(err.message || 'Error al eliminar el registro.');
+        })
+        .apiEliminarConfiguracion(token, CONFIG_STATE.sheetSelected, CONFIG_STATE.idCol, idVal);
+    }
+  });
+}
+</script>

@@ -1,0 +1,1490 @@
+<!doctype html>
+<html lang="es">
+
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" type="image/x-icon" href="https://www.example.com/favicon.ico">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+  <?!= include('Styles'); ?>
+  <script src="https://cdn.jsdelivr.net/npm/signature_pad@5.0.1/dist/signature_pad.umd.min.js"></script>
+  <!-- Dependencias para generación de PDF client-side (mismo enfoque que la carta de aprobación) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+
+<body>
+  <!-- Animated wave background -->
+  <canvas id="waveBg" style="position:fixed;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none;"></canvas>
+  <div class="app">
+
+    <!-- ══════════ HEADER ══════════ -->
+    <header class="header" id="appHeader">
+      <div class="header-inner">
+        <div class="brand" style="display:flex; align-items:center; gap:16px;">
+          <img src="https://lh3.googleusercontent.com/d/TU_LOGO_DRIVE_ID" alt="CupoFlow"
+            style="height:38px; width:auto; object-fit:contain; display:block;">
+        </div>
+
+        <!-- Skeleton stepper -->
+        <div id="stepperSkeleton" class="stepper" style="gap:8px;">
+          <div class="sk-dark sk-badge" style="width:60px;"></div>
+          <div class="sk-dark" style="height:1px;flex:1;max-width:40px;"></div>
+          <div class="sk-dark sk-badge" style="width:80px;"></div>
+          <div class="sk-dark" style="height:1px;flex:1;max-width:40px;"></div>
+          <div class="sk-dark sk-badge" style="width:80px;"></div>
+          <div class="sk-dark" style="height:1px;flex:1;max-width:40px;"></div>
+          <div class="sk-dark sk-badge" style="width:90px;"></div>
+
+        </div>
+
+        <!-- Stepper real -->
+        <nav class="stepper" role="tablist" aria-label="Pasos del formulario" id="stepperReal" style="display:none;">
+          <button class="step-node is-active" id="pill1" type="button" role="tab" aria-selected="true">
+            <span class="node-circle">
+              <svg class="node-ico" viewBox="0 0 20 20">
+                <path d="M10 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8zm0 10c4.418 0 8 1.79 8 4v1H2v-1c0-2.21 3.582-4 8-4z"
+                  fill="currentColor" />
+              </svg>
+              <span class="node-num">1</span>
+            </span>
+            <span class="node-label">Tipo</span>
+          </button>
+          <div class="step-connector" id="conn1"></div>
+          <button class="step-node is-disabled" id="pill2" type="button" role="tab">
+            <span class="node-circle">
+              <svg class="node-ico" viewBox="0 0 20 20">
+                <path d="M3 17V7l7-4 7 4v10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+                  fill="none" />
+                <rect x="7" y="11" width="6" height="6" rx=".5" fill="currentColor" />
+              </svg>
+              <span class="node-num">2</span>
+            </span>
+            <span class="node-label">Empresa</span>
+          </button>
+          <div class="step-connector" id="conn2"></div>
+          <button class="step-node is-disabled" id="pill3" type="button" role="tab">
+            <span class="node-circle">
+              <svg class="node-ico" viewBox="0 0 20 20">
+                <path
+                  d="M9 6a3 3 0 1 1 0 6 3 3 0 0 1 0-6zm5.5 10.5c0-2.485-3.134-4.5-7-4.5s-7 2.015-7 4.5V18h14v-1.5zm1.5-3a5.5 5.5 0 0 1 2 1.5V18h2v-1c0-1.657-1.79-3.07-4-3.5z"
+                  fill="currentColor" />
+              </svg>
+              <span class="node-num">3</span>
+            </span>
+            <span class="node-label">Contactos</span>
+          </button>
+          <div class="step-connector" id="conn3"></div>
+          <button class="step-node is-disabled" id="pill4" type="button" role="tab">
+            <span class="node-circle">
+              <svg class="node-ico" viewBox="0 0 20 20">
+                <path
+                  d="M4 4a2 2 0 0 1 2-2h8l4 4v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4zm9 0v3h3l-3-3zM7 9h6v1H7V9zm0 3h6v1H7v-1zm0 3h4v1H7v-1z"
+                  fill="currentColor" />
+              </svg>
+              <span class="node-num">4</span>
+            </span>
+            <span class="node-label">Documentos</span>
+          </button>
+
+          <div class="step-connector" id="conn4"></div>
+          <button class="step-node is-disabled" id="pill5" type="button" role="tab">
+            <span class="node-circle">
+              <svg class="node-ico" viewBox="0 0 20 20">
+                <path
+                  d="M16.707 5.293a1 1 0 0 1 0 1.414l-8 8a1 1 0 0 1-1.414 0l-4-4a1 1 0 1 1 1.414-1.414L8 12.586l7.293-7.293a1 1 0 0 1 1.414 0z"
+                  fill="currentColor" />
+              </svg>
+              <span class="node-num">5</span>
+            </span>
+            <span class="node-label">Confirmar</span>
+          </button>
+        </nav>
+
+        <div class="step-label-wrap" id="stepBadgeWrap" style="visibility:hidden;">
+          <button type="button" class="step-badge-btn" id="stepBadgeBtn" onclick="toggleMobileStepMenu()" aria-label="Cambiar paso del formulario" aria-expanded="false" title="Toca para cambiar de paso">
+            <span class="step-badge-text" id="stepBadge">Paso 1 / 5</span>
+            <svg class="step-badge-chevron" viewBox="0 0 12 12" width="11" height="11">
+              <path d="M2.5 4.5L6 8l3.5-3.5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <button id="btnOpenConsultarPanel" onclick="openConsultarPanel()" type="button" class="btn-consultar-header">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+          stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <span>Consultar Estado</span>
+      </button>
+
+      <div class="progress-track">
+        <div class="progress-bar" id="progressBar" style="width:25%"></div>
+      </div>
+    </header>
+
+    <!-- Menú desplegable para navegación entre pasos en móviles -->
+    <div class="mobile-step-menu hidden" id="mobileStepMenu" role="dialog" aria-modal="true" aria-label="Selector de pasos">
+      <div class="mobile-step-backdrop" onclick="closeMobileStepMenu()"></div>
+      <div class="mobile-step-sheet">
+        <div class="mobile-step-header">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--gold, #ca711f)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            <span class="mobile-step-title">Pasos del Formulario</span>
+          </div>
+          <button type="button" class="mobile-step-close" onclick="closeMobileStepMenu()" aria-label="Cerrar selector de pasos">
+            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+        </div>
+        <div class="mobile-step-list">
+          <div class="mobile-step-item is-active" id="mStep1" onclick="onMobileStepClick(1)" tabindex="0">
+            <div class="mobile-step-num">1</div>
+            <div class="mobile-step-info">
+              <span class="m-step-name">Tipo de Solicitud</span>
+              <span class="m-step-desc">Selección y portafolio de centros</span>
+            </div>
+            <div class="mobile-step-state" id="mStepState1"><span class="m-step-badge m-active">En curso</span></div>
+          </div>
+          <div class="mobile-step-item is-disabled" id="mStep2" onclick="onMobileStepClick(2)" tabindex="0">
+            <div class="mobile-step-num">2</div>
+            <div class="mobile-step-info">
+              <span class="m-step-name">Información de la Empresa</span>
+              <span class="m-step-desc">Razón social, NIT y datos básicos</span>
+            </div>
+            <div class="mobile-step-state" id="mStepState2"><span class="m-step-badge m-locked"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span></div>
+          </div>
+          <div class="mobile-step-item is-disabled" id="mStep3" onclick="onMobileStepClick(3)" tabindex="0">
+            <div class="mobile-step-num">3</div>
+            <div class="mobile-step-info">
+              <span class="m-step-name">Contactos y Facturación</span>
+              <span class="m-step-desc">Tesorero, pagos y facturas</span>
+            </div>
+            <div class="mobile-step-state" id="mStepState3"><span class="m-step-badge m-locked"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span></div>
+          </div>
+          <div class="mobile-step-item is-disabled" id="mStep4" onclick="onMobileStepClick(4)" tabindex="0">
+            <div class="mobile-step-num">4</div>
+            <div class="mobile-step-info">
+              <span class="m-step-name">Documentación</span>
+              <span class="m-step-desc">Cámara, RUT y soportes PDF</span>
+            </div>
+            <div class="mobile-step-state" id="mStepState4"><span class="m-step-badge m-locked"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span></div>
+          </div>
+          <div class="mobile-step-item is-disabled" id="mStep5" onclick="onMobileStepClick(5)" tabindex="0">
+            <div class="mobile-step-num">5</div>
+            <div class="mobile-step-info">
+              <span class="m-step-name">Confirmación y Envío</span>
+              <span class="m-step-desc">Resumen y firma OTP</span>
+            </div>
+            <div class="mobile-step-state" id="mStepState5"><span class="m-step-badge m-locked"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════ MAIN ══════════ -->
+    <main class="main-content">
+      <div class="container" style="position:relative;">
+
+        <!-- CHANGE #20 — alert box hidden, validation uses modal -->
+        <div id="alertBox" class="alert-box hidden" role="alert" aria-live="polite"></div>
+
+        <!-- Botón guardar borrador -->
+        <button id="btnGuardarBorrador" onclick="draftSave(); draftShowGuardado()" style="display:none; position:absolute; top:0; right:0; z-index:100;
+                       align-items:center; gap:6px;
+                       background:#fff; border:1.5px solid rgba(25, 59, 56,.15);
+                       border-radius:8px; padding:7px 13px;
+                       font-family:'Outfit',sans-serif; font-size:12px;
+                       font-weight:600; color:#194b3f; cursor:pointer;
+                       box-shadow:0 2px 8px rgba(14, 54, 47,.08);">
+          <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
+            <path d="M4 4a2 2 0 0 1 2-2h6l4 4v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4z" stroke="currentColor"
+              stroke-width="1.5" />
+            <path d="M12 2v4h4M7 9h6M7 12h6" stroke="#d08b43" stroke-width="1.5" stroke-linecap="round" />
+          </svg>
+          Guardar borrador
+        </button>
+
+        <!-- ══ PASO 1 — Tipo de solicitud ══ -->
+        <section id="step1" class="step-panel" style="position:relative;">
+          <!-- Skeleton carga inicial -->
+          <div id="skeletonScreen">
+            <div style="display:flex;gap:14px;align-items:flex-start;">
+              <div class="sk" style="width:46px;height:46px;border-radius:14px;flex-shrink:0;"></div>
+              <div style="flex:1;display:flex;flex-direction:column;gap:8px;padding-top:4px;">
+                <div class="sk sk-title" style="width:55%;"></div>
+                <div class="sk sk-text" style="width:80%;"></div>
+                <div class="sk sk-text" style="width:65%;"></div>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <div class="sk sk-text" style="width:30%;"></div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;">
+                <div class="sk sk-card"></div>
+                <div class="sk sk-card"></div>
+                <div class="sk sk-card"></div>
+                <div class="sk sk-card"></div>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <div class="sk sk-text" style="width:25%;"></div>
+              <div class="sk sk-input"></div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:4px;">
+                <div class="sk" style="height:38px;border-radius:99px;"></div>
+                <div class="sk" style="height:38px;border-radius:99px;"></div>
+              </div>
+            </div>
+            <div style="display:flex;justify-content:flex-end;">
+              <div class="sk sk-badge" style="width:120px;height:40px;border-radius:var(--radius-sm);"></div>
+            </div>
+          </div>
+          <div class="panel-intro">
+            <div class="panel-intro-icon">
+              <svg viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.5" />
+                <path d="M12 8v4m0 4h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+              </svg>
+            </div>
+            <div>
+              <h2 class="panel-title">Iniciar solicitud de crédito</h2>
+              <p class="panel-desc">Selecciona el tipo de solicitud y los centros sobre los cuales desea iniciar la gestión.</p>
+              <!-- CHANGE #17 — Policy link -->
+              <a class="policy-link"
+                href="https://drive.google.com/file/d/TU_DRIVE_FILE_ID/view?usp=sharing"
+                target="_blank">
+                <svg viewBox="0 0 20 20">
+                  <path d="M13 3h4v4M11 9l6-6M8 4H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-3"
+                    stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+                    fill="none" />
+                </svg>
+                Ver instructivo para clientes
+              </a>
+            </div>
+          </div>
+
+
+          <!-- Tipo solicitud -->
+          <fieldset class="fieldset-block">
+            <label class="section-title-row">Tipo de solicitud <span class="req">*</span></label>
+            <div class="tipo-grid" id="tipoSolicitudGrid">
+              <label class="tipo-card" data-code="NUEVA" tabindex="0">
+                <input type="radio" name="tipo_solicitud" value="NUEVA" class="sr-only" tabindex="-1">
+                <div class="tipo-icon"><svg viewBox="0 0 24 24" fill="none">
+                    <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                  </svg></div>
+                <div class="tipo-info"><strong>Solicitud nueva</strong><span>Primera vez que la empresa solicita crédito
+                    con CupoFlow</span></div>
+                <div class="tipo-check"><svg viewBox="0 0 20 20">
+                    <path
+                      d="M16.707 5.293a1 1 0 0 1 0 1.414l-8 8a1 1 0 0 1-1.414 0l-4-4a1 1 0 1 1 1.414-1.414L8 12.586l7.293-7.293a1 1 0 0 1 1.414 0z"
+                      fill="currentColor" />
+                  </svg></div>
+              </label>
+              <label class="tipo-card" data-code="AMPLIACION" tabindex="0">
+                <input type="radio" name="tipo_solicitud" value="AMPLIACION" class="sr-only" tabindex="-1">
+                <div class="tipo-icon"><svg viewBox="0 0 24 24" fill="none">
+                    <path d="M4 12h16M12 4l8 8-8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                      stroke-linejoin="round" />
+                  </svg></div>
+                <div class="tipo-info"><strong>Ampliación / Extensión</strong><span>Aumento del monto o extensión de crédito existente a nuevas propiedades</span></div>
+                <div class="tipo-check"><svg viewBox="0 0 20 20">
+                    <path
+                      d="M16.707 5.293a1 1 0 0 1 0 1.414l-8 8a1 1 0 0 1-1.414 0l-4-4a1 1 0 1 1 1.414-1.414L8 12.586l7.293-7.293a1 1 0 0 1 1.414 0z"
+                      fill="currentColor" />
+                  </svg></div>
+              </label>
+              <label class="tipo-card" data-code="RENOVACION" tabindex="0">
+                <input type="radio" name="tipo_solicitud" value="RENOVACION" class="sr-only" tabindex="-1">
+                <div class="tipo-icon"><svg viewBox="0 0 24 24" fill="none">
+                    <path
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 0 0 4.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 0 1-15.357-2m15.357 2H15"
+                      stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg></div>
+                <div class="tipo-info"><strong>Renovación</strong><span>Actualización anual del crédito vigente, por vencimiento de documentación</span></div>
+                <div class="tipo-check"><svg viewBox="0 0 20 20">
+                    <path
+                      d="M16.707 5.293a1 1 0 0 1 0 1.414l-8 8a1 1 0 0 1-1.414 0l-4-4a1 1 0 1 1 1.414-1.414L8 12.586l7.293-7.293a1 1 0 0 1 1.414 0z"
+                      fill="currentColor" />
+                  </svg></div>
+              </label>
+            </div>
+            <input type="hidden" id="tipo_solicitud">
+          </fieldset>
+
+          <div class="grid-2">
+            <!-- CHANGE #3 — Centros as multi-select checkboxes -->
+            <div class="field field-full">
+              <label class="section-title-row">Portafolio centros <span class="req">*</span></label>
+              <div class="centros-wrap">
+                <div class="centros-search-wrap">
+                  <input class="centros-search" id="centroSearchInput" placeholder="Buscar centro…" autocomplete="off">
+                  <div class="centros-select-all-wrap">
+                    <button type="button" id="btnSelectAllCentros" class="btn-centros-all">
+                      <svg viewBox="0 0 12 12">
+                        <polyline points="1 6 4 9 11 2" />
+                      </svg>
+                      Seleccionar todos
+                    </button>
+                    <button type="button" id="btnDeselectAllCentros" class="btn-centros-all" title="Limpiar selección"
+                      style="display:none;padding:0 8px;">
+                      <svg viewBox="0 0 12 12">
+                        <line x1="2" y1="2" x2="10" y2="10" />
+                        <line x1="10" y1="2" x2="2" y2="10" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="centros-grid" id="centroCheckGrid"></div>
+              </div>
+              <input type="hidden" id="centro_codigo">
+            </div>
+          </div>
+          <br>
+          <div class="field-hint">Selecciona todos los centros para los que aplica esta solicitud de crédito.</div>
+          <div class="step-actions" style="justify-content:flex-end;">
+            <button type="button" class="btn btn-outline" onclick="draftSave(); draftShowGuardado()"
+              style="color:var(--gold);border-color:rgba(202, 113, 31,.3);">
+              <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
+                <path d="M4 4a2 2 0 0 1 2-2h6l4 4v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4z" stroke="currentColor"
+                  stroke-width="1.5" />
+                <path d="M12 2v4h4M7 9h6M7 12h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+              </svg>
+              Guardar borrador
+            </button>
+            <button class="btn btn-primary" id="btnNext1" type="button">
+              Continuar
+            </button>
+          </div>
+        </section>
+
+        <!-- ══ PASO 2 — Información básica de la empresa ══ -->
+        <section id="step2" class="step-panel hidden">
+          <div class="panel-header">
+            <h2 class="panel-title">Información básica de la empresa</h2>
+            <p class="panel-desc">Datos que serán verificados y bajo los cuales se emitirán las facturas.</p>
+          </div>
+
+          <!-- ─── Banner / Tarjeta de Autocompletado en Paso 2 ─── -->
+          <div class="ia-autofill-card" id="iaAutofillCardStep2">
+            <div class="ia-autofill-header">
+              <div class="ia-autofill-title">
+                <svg class="ia-sparkle-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4L12 2z" />
+                </svg>
+                <span>Validación y autocompletado de tu empresa</span>
+                <span class="ia-badge-tag req-badge">Obligatorio</span>
+              </div>
+              <p class="ia-autofill-desc">
+                Sube tu <strong>RUT</strong> y <strong>Certificado de Cámara de Comercio</strong> (en PDF) para que nuestra IA verifique y determine de forma oficial la <strong>Razón Social</strong> y el <strong>NIT</strong>, además de autocompletar Nombre Comercial, Dirección, Ciudad y Departamento. <em>(Nota: La Razón Social y el NIT son determinados únicamente por la IA; podrás revisar y editar los demás datos).</em>
+              </p>
+            </div>
+
+            <div class="ia-dropzone" id="iaDropzone2" onclick="$('iaFileInput2').click()"
+              ondragover="handleIaDragOver(event, 2)" ondragleave="handleIaDragLeave(event, 2)"
+              ondrop="handleIaDrop(event, 2)">
+              <input type="file" id="iaFileInput2" accept="application/pdf" multiple style="display:none;"
+                onchange="handleIaFileSelect(event)">
+              <div class="ia-dropzone-content" id="iaDropzoneContent2">
+                <svg class="ia-upload-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="17 8 12 3 7 8" />
+                  <line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+                <div class="ia-dropzone-text">
+                  <strong>Arrastra tu <b>RUT</b> y <b>Cámara de Comercio</b> aquí</strong> o <span>haz clic para
+                    examinar</span>
+                </div>
+                <div class="ia-dropzone-sub">Formato admitido: PDF (máx. 30 MB)</div>
+              </div>
+
+              <div class="ia-dropzone-loading hidden" id="iaDropzoneLoading2">
+                <div class="ia-spinner"></div>
+                <div class="ia-loading-text">Estamos analizando los documentos para autocompletar la información...
+                </div>
+              </div>
+            </div>
+
+            <div class="ia-success-banner hidden" id="iaSuccessBanner2">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                stroke-linejoin="round">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                <polyline points="22 4 12 14.01 9 11.01" />
+              </svg>
+              <span id="iaSuccessText2">¡Campos autocompletados con éxito! La Razón Social y NIT han sido determinados por la IA.</span>
+            </div>
+          </div>
+
+          <div class="section-title-row">Datos generales <span class="req">*</span></div>
+          <div class="grid-2">
+            <div class="field field-full">
+              <label for="razon_social">Razón social <span class="req">*</span> <small style="font-size:11px;color:var(--muted);font-weight:normal;">(Fijada por la IA)</small></label>
+              <div class="field-hint">Bajo la cual el crédito será verificado y las facturas serán emitidas. Determinada automáticamente mediante el documento adjunto.</div>
+              <div class="input-wrap">
+                <svg class="input-ico" viewBox="0 0 20 20" fill="none">
+                  <path d="M3 17V7l7-4 7 4v10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                </svg>
+                <input id="razon_social" autocomplete="organization" placeholder="Determinada automáticamente por la IA" readonly>
+              </div>
+            </div>
+            <div class="field">
+              <label for="nombre_comercial">Nombre comercial <span class="req">*</span></label>
+              <div class="input-wrap">
+                <svg class="input-ico" viewBox="0 0 20 20" fill="none">
+                  <rect x="2" y="5" width="16" height="11" rx="2" stroke="currentColor" stroke-width="1.5" />
+                </svg>
+                <input id="nombre_comercial" placeholder="Nombre comercial"
+                  oninput="this.value = this.value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9 ]/g, ''); this.classList.remove('input-error')">
+              </div>
+            </div>
+            <div class="field">
+              <label for="nit">NIT <span class="req">*</span> <small style="font-size:11px;color:var(--muted);font-weight:normal;">(Fijado por la IA)</small></label>
+              <div class="input-wrap">
+                <!-- CHANGE #9 — different icon for NIT -->
+                <svg class="input-ico" viewBox="0 0 20 20" fill="none">
+                  <rect x="2" y="4" width="16" height="12" rx="2" stroke="currentColor" stroke-width="1.5" />
+                  <path d="M5 8h4M5 11h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                </svg>
+                <input id="nit" inputmode="numeric" placeholder="Determinado por la IA" maxlength="9" readonly>
+              </div>
+            </div>
+          </div>
+
+          <div class="section-title-row" style="margin-top:18px">Dirección y ubicación <span class="req">*</span></div>
+          <div class="grid-2">
+            <div class="field field-full">
+              <label for="direccion">Dirección <span class="req">*</span></label>
+              <div class="input-wrap">
+                <svg class="input-ico" viewBox="0 0 20 20" fill="none">
+                  <path d="M10 2a6 6 0 0 0-6 6c0 4 6 10 6 10s6-6 6-10a6 6 0 0 0-6-6z" stroke="currentColor"
+                    stroke-width="1.5" />
+                  <circle cx="10" cy="8" r="2" stroke="currentColor" stroke-width="1.5" />
+                </svg>
+                <input id="direccion" placeholder="Dirección de la empresa"
+                  oninput="this.classList.remove('input-error')">
+              </div>
+            </div>
+            <div class="field">
+              <label for="ciudad">Ciudad <span class="req">*</span></label>
+              <div class="input-wrap">
+                <svg class="input-ico" viewBox="0 0 20 20" fill="none">
+                  <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.5" />
+                  <path d="M10 2c-2 3-2 13 0 16M2 10h16" stroke="currentColor" stroke-width="1.5" />
+                </svg>
+                <input id="ciudad" placeholder="Ciudad" oninput="this.classList.remove('input-error')">
+              </div>
+            </div>
+            <!-- CHANGE #7 — Different icon for Departamento -->
+            <div class="field">
+              <label for="departamento">Departamento <span class="req">*</span></label>
+              <div class="input-wrap">
+                <svg class="input-ico" viewBox="0 0 20 20" fill="none">
+                  <path d="M2 6h16M2 10h16M2 14h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                </svg>
+                <input id="departamento" placeholder="Departamento" oninput="this.classList.remove('input-error')">
+              </div>
+            </div>
+            <div class="field" style="display:none;">
+              <label for="cod_postal">Código postal</label>
+              <div class="input-wrap">
+                <svg class="input-ico" viewBox="0 0 20 20" fill="none">
+                  <rect x="2" y="5" width="16" height="12" rx="2" stroke="currentColor" stroke-width="1.5" />
+                  <path d="M2 9h16" stroke="currentColor" stroke-width="1.5" />
+                </svg>
+                <input id="cod_postal" inputmode="numeric" placeholder="Código postal" value="110110"
+                  oninput="this.classList.remove('input-error')">
+              </div>
+            </div>
+          </div>
+
+          <div class="section-title-row" style="margin-top:18px">Representante legal <span class="req">*</span></div>
+          <div class="grid-2">
+            <div class="field field-full">
+              <label for="nombre_rep_legal">Nombre completo del representante <span class="req">*</span></label>
+              <div class="input-wrap">
+                <svg class="input-ico" viewBox="0 0 20 20" fill="none">
+                  <circle cx="10" cy="7" r="3" stroke="currentColor" stroke-width="1.5" />
+                  <path d="M4 17a6 6 0 0 1 12 0" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                </svg>
+                <input id="nombre_rep_legal" placeholder="Nombre y apellidos completos"
+                  oninput="this.classList.remove('input-error')">
+              </div>
+            </div>
+            <!-- CHANGE #8 — Tipo de identificación with icon -->
+            <div class="field">
+              <label>Tipo de identificación <span class="req">*</span></label>
+              <div class="csel-wrap" id="csel_tipo_id">
+                <div class="csel-trigger" tabindex="0" id="csel_tipo_id_trigger">
+                  <span class="csel-ico">
+                    <svg viewBox="0 0 20 20" fill="none">
+                      <rect x="2" y="4" width="16" height="12" rx="2" stroke="currentColor" stroke-width="1.5" />
+                      <circle cx="7" cy="10" r="2" stroke="currentColor" stroke-width="1.5" />
+                      <path d="M11 9h4M11 12h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                    </svg>
+                  </span>
+                  <span class="csel-val" id="csel_tipo_id_val">Selecciona…</span>
+                  <svg class="csel-arrow" viewBox="0 0 20 20">
+                    <path d="M5 8l5 5 5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                  </svg>
+                </div>
+                <div class="csel-dropdown" id="csel_tipo_id_drop">
+                  <div class="csel-list" id="csel_tipo_id_list"></div>
+                </div>
+                <input type="hidden" id="tipo_id_rep" oninput="this.classList.remove('input-error')">
+              </div>
+            </div>
+            <div class="field">
+              <label for="num_id_rep">No. de identificación <span class="req">*</span></label>
+              <div class="input-wrap">
+                <!-- CHANGE #9 — different icon for ID number -->
+                <svg class="input-ico" viewBox="0 0 20 20" fill="none">
+                  <rect x="2" y="4" width="16" height="12" rx="2" stroke="currentColor" stroke-width="1.5" />
+                  <path d="M5 8h10M5 11h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                </svg>
+                <input id="num_id_rep" inputmode="numeric" placeholder="Número de identificación"
+                  oninput="this.classList.remove('input-error')">
+              </div>
+            </div>
+            <div class="field">
+              <label for="cargo_rep">Cargo <span class="req">*</span></label>
+              <div class="input-wrap">
+                <svg class="input-ico" viewBox="0 0 20 20" fill="none">
+                  <rect x="2" y="6" width="16" height="10" rx="2" stroke="currentColor" stroke-width="1.5" />
+                  <path d="M6 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" stroke="currentColor" stroke-width="1.5" />
+                </svg>
+                <input id="cargo_rep" placeholder="Cargo del representante legal"
+                  oninput="this.classList.remove('input-error')">
+              </div>
+            </div>
+            <!-- CHANGE #10 — Phone prefix for representante -->
+            <!-- Teléfono directo -->
+            <div class="field">
+              <label>Teléfono directo <span class="req">*</span></label>
+
+              <div class="phone-wrap">
+                <div class="phone-prefix">
+                  <svg viewBox="0 0 20 20" fill="none">
+                    <path
+                      d="M3 5a2 2 0 0 1 2-2h1.28a1 1 0 0 1 .948.684l1.1 3.305a1 1 0 0 1-.23 1.02L7 9.2a11.05 11.05 0 0 0 3.8 3.8l1.19-1.098a1 1 0 0 1 1.02-.23l3.305            1.1A1 1 0 0 1 17 13.72V15a2 2 0 0 1-2 2h-1C7.163 17 3 12.837 3 7V5z"
+                      stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                  </svg>
+
+                  <input id="tel_rep_prefix" class="phone-prefix-input" type="text" inputmode="tel" maxlength="5"
+                    value="+57" placeholder="+57" aria-label="Indicativo del teléfono"
+                    oninput="this.classList.remove('input-error')">
+                </div>
+
+                <input id="tel_rep_num" class="phone-input" type="text" inputmode="tel"
+                  placeholder="Teléfono del representante" aria-label="Número de teléfono del representante"
+                  oninput="this.classList.remove('input-error')">
+              </div>
+
+              <input type="hidden" id="tel_rep">
+            </div>
+            <div class="field">
+              <label for="correo_rep">Correo electrónico <span class="req">*</span></label>
+              <div class="input-wrap">
+                <svg class="input-ico" viewBox="0 0 20 20" fill="none">
+                  <path d="M2 4h16v12H2z" stroke="currentColor" stroke-width="1.5" />
+                  <path d="M2 4l8 7 8-7" stroke="currentColor" stroke-width="1.5" />
+                </svg>
+                <input type="email" id="correo_rep" autocomplete="email" placeholder="correo@example.com"
+                  oninput="this.classList.remove('input-error')">
+              </div>
+            </div>
+          </div>
+
+          <div class="section-title-row" style="margin-top:18px">Responsabilidad fiscal <span class="req">*</span></div>
+          <div class="fiscal-grid">
+            <label class="fiscal-row"><input type="checkbox" class="fiscal-check" value="0-13"><span
+                class="fiscal-code">0-13</span><span>Gran contribuyente</span></label>
+            <label class="fiscal-row"><input type="checkbox" class="fiscal-check" value="0-15"><span
+                class="fiscal-code">0-15</span><span>Autorretenedor</span></label>
+            <label class="fiscal-row"><input type="checkbox" class="fiscal-check" value="0-23"><span
+                class="fiscal-code">0-23</span><span>Agente retención IVA</span></label>
+            <label class="fiscal-row"><input type="checkbox" class="fiscal-check" value="0-47"><span
+                class="fiscal-code">0-47</span><span>Régimen simple de tributación</span></label>
+            <label class="fiscal-row"><input type="checkbox" class="fiscal-check" value="48"><span
+                class="fiscal-code">48</span><span>Impuesto sobre las ventas IVA</span></label>
+            <label class="fiscal-row"><input type="checkbox" class="fiscal-check" value="R-99-PN"><span
+                class="fiscal-code">R-99-PN</span><span>No responsable</span></label>
+            <label class="fiscal-row"><input type="checkbox" class="fiscal-check" id="fiscalOtroCheck"
+                value="OTRO"><span class="fiscal-code">Otro</span><span>Otra responsabilidad no listada</span></label>
+          </div>
+          <div class="field field-full" id="fiscalOtroWrap" style="display:none;margin-top:8px;">
+            <label for="fiscalOtroTexto">Especifique la responsabilidad fiscal <span class="req">*</span></label>
+            <div class="input-wrap">
+              <svg class="input-ico" viewBox="0 0 20 20" fill="none">
+                <path d="M3 17V7l7-4 7 4v10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+              </svg>
+              <input id="fiscalOtroTexto" maxlength="80" placeholder="Ej: Gran contribuyente régimen especial"
+                oninput="this.classList.remove('input-error')">
+            </div>
+          </div>
+
+          <div class="section-title-row" style="margin-top:18px">Ejecutivo Comercial <span class="req">*</span></div>
+          <input type="hidden" id="monto" value="0">
+          <input type="hidden" id="moneda" value="COP">
+          <div class="grid-2">
+
+            <div class="field">
+              <label>Ejecutivo comercial <span class="req">*</span></label>
+              <div class="field-hint">Comercial que gestiona la solicitud.</div>
+              <div id="ejecutivo_wrap">
+                <input type="hidden" id="ejecutivo_cuenta">
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="fecha_diligenciamiento">Fecha de diligenciamiento <span class="req">*</span></label>
+              <div class="field-hint">Se registra automáticamente con la fecha actual.</div>
+              <div class="input-wrap">
+                <svg class="input-ico" viewBox="0 0 20 20" fill="none">
+                  <rect x="2" y="3" width="16" height="15" rx="2" stroke="currentColor" stroke-width="1.5" />
+                  <line x1="2" y1="8" x2="18" y2="8" stroke="currentColor" stroke-width="1.5" />
+                  <line x1="7" y1="2" x2="7" y2="5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                  <line x1="13" y1="2" x2="13" y2="5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                </svg>
+                <input type="text" id="fecha_diligenciamiento" readonly tabindex="-1" class="locked-date">
+              </div>
+            </div>
+          </div>
+
+          <div class="step-actions split">
+            <button class="btn btn-outline" id="btnBack2" type="button">Atrás</button>
+            <div style="display:flex;gap:10px;">
+              <button type="button" class="btn btn-outline" onclick="draftSave(); draftShowGuardado()"
+                style="color:var(--gold);border-color:rgba(202, 113, 31,.3);">
+                <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
+                  <path d="M4 4a2 2 0 0 1 2-2h6l4 4v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4z" stroke="currentColor"
+                    stroke-width="1.5" />
+                  <path d="M12 2v4h4M7 9h6M7 12h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                </svg>
+                Guardar borrador
+              </button>
+              <button class="btn btn-primary" id="btnNext2" type="button">Continuar</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ══ PASO 3 — Contactos y facturación ══ -->
+        <section id="step3" class="step-panel hidden">
+          <div class="panel-header">
+            <h2 class="panel-title">Contactos y Correos de Facturación</h2>
+            <p class="panel-desc">Contactos de Gestión de Cobro e Información para Radicación de Facturas</p>
+          </div>
+
+          <div class="section-title-row">Personas de contacto <span class="req">*</span></div>
+          <div class="contacts-table">
+            <div class="contacts-head">
+              <span>Área</span><span>Nombre</span><span>Teléfono</span><span>E-mail</span>
+            </div>
+
+            <div class="contacts-row">
+              <span class="area-label">Tesorería <span class="req">*</span></span>
+              <div class="input-wrap compact"><input id="cont_tes_nombre" placeholder="Nombre"
+                  oninput="this.classList.remove('input-error')"></div>
+              <div class="phone-wrap compact">
+                <div class="phone-prefix">
+                  <input id="cont_tes_tel_prefix" class="phone-prefix-input" type="text" inputmode="tel" maxlength="5"
+                    value="+57" placeholder="+57">
+                </div>
+                <input id="cont_tes_tel_num" class="phone-input" type="text" inputmode="tel" placeholder="Teléfono"
+                  oninput="this.classList.remove('input-error')">
+                <input type="hidden" id="cont_tes_tel">
+              </div>
+              <div class="input-wrap compact"><input type="email" id="cont_tes_email" placeholder="E-mail"
+                  oninput="this.classList.remove('input-error')"></div>
+            </div>
+
+            <div class="contacts-row">
+              <span class="area-label">Cuentas por pagar <span class="req">*</span></span>
+              <div class="input-wrap compact"><input id="cont_cp_nombre" placeholder="Nombre"
+                  oninput="this.classList.remove('input-error')"></div>
+              <div class="phone-wrap compact">
+                <div class="phone-prefix">
+                  <input id="cont_cp_tel_prefix" class="phone-prefix-input" type="text" inputmode="tel" maxlength="5"
+                    value="+57" placeholder="+57">
+                </div>
+                <input id="cont_cp_tel_num" class="phone-input" type="text" inputmode="tel" placeholder="Teléfono"
+                  oninput="this.classList.remove('input-error')">
+                <input type="hidden" id="cont_cp_tel">
+              </div>
+              <div class="input-wrap compact"><input type="email" id="cont_cp_email" placeholder="E-mail"
+                  oninput="this.classList.remove('input-error')"></div>
+            </div>
+
+            <div class="contacts-row">
+              <span class="area-label">Director Financiero</span>
+              <div class="input-wrap compact"><input id="cont_df_nombre" placeholder="Nombre"
+                  oninput="this.classList.remove('input-error')"></div>
+              <div class="phone-wrap compact">
+                <div class="phone-prefix">
+                  <input id="cont_df_tel_prefix" class="phone-prefix-input" type="text" inputmode="tel" maxlength="5"
+                    value="+57" placeholder="+57">
+                </div>
+                <input id="cont_df_tel_num" class="phone-input" type="text" inputmode="tel" placeholder="Teléfono"
+                  oninput="this.classList.remove('input-error')">
+                <input type="hidden" id="cont_df_tel">
+              </div>
+              <div class="input-wrap compact"><input type="email" id="cont_df_email" placeholder="E-mail"
+                  oninput="this.classList.remove('input-error')"></div>
+            </div>
+
+            <div class="contacts-row">
+              <span class="area-label">Comercial</span>
+              <div class="input-wrap compact"><input id="cont_com_nombre" placeholder="Nombre (quien solicita)"
+                  oninput="this.classList.remove('input-error')"></div>
+              <div class="phone-wrap compact">
+                <div class="phone-prefix">
+                  <input id="cont_com_tel_prefix" class="phone-prefix-input" type="text" inputmode="tel" maxlength="5"
+                    value="+57" placeholder="+57">
+                </div>
+                <input id="cont_com_tel_num" class="phone-input" type="text" inputmode="tel" placeholder="Teléfono"
+                  oninput="this.classList.remove('input-error')">
+                <input type="hidden" id="cont_com_tel">
+              </div>
+              <div class="input-wrap compact"><input type="email" id="cont_com_email" placeholder="E-mail"
+                  oninput="this.classList.remove('input-error')"></div>
+            </div>
+
+          </div>
+
+          <div class="section-title-row" style="margin-top:22px">Información de facturación <span class="req">*</span>
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label for="fact_fecha_corte">Fecha de corte para radicación <span class="req">*</span></label>
+              <div class="input-wrap">
+                <svg class="input-ico" viewBox="0 0 20 20" fill="none">
+                  <rect x="2" y="3" width="16" height="15" rx="2" stroke="currentColor" stroke-width="1.5" />
+                  <line x1="2" y1="8" x2="18" y2="8" stroke="currentColor" stroke-width="1.5" />
+                </svg>
+                <input id="fact_fecha_corte" placeholder="Ej: último día hábil del mes"
+                  oninput="this.classList.remove('input-error')">
+              </div>
+            </div>
+            <!-- CHANGE #15 — swap: docs req before inscripcion radio -->
+            <div class="field">
+              <label for="fact_docs_req">Documentos adicionales solicitados para radicación de facturas <span class="req">*</span></label>
+              <div class="input-wrap">
+                <svg class="input-ico" viewBox="0 0 20 20" fill="none">
+                  <path d="M4 4a2 2 0 0 1 2-2h8l4 4v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4z" stroke="currentColor"
+                    stroke-width="1.5" />
+                </svg>
+                <input id="fact_docs_req" placeholder="Documentos requeridos para radicar facturas"
+                  oninput="this.classList.remove('input-error')">
+              </div>
+            </div>
+            <div class="field field-full">
+              <label for="fact_email">E-mail facturación electrónica <span class="req">*</span></label>
+              <div class="input-wrap">
+                <svg class="input-ico" viewBox="0 0 20 20" fill="none">
+                  <path d="M2 4h16v12H2z" stroke="currentColor" stroke-width="1.5" />
+                  <path d="M2 4l8 7 8-7" stroke="currentColor" stroke-width="1.5" />
+                </svg>
+                <input type="email" id="fact_email" placeholder="correo@example.com (facturación electrónica)"
+                  oninput="this.classList.remove('input-error')">
+              </div>
+            </div>
+            <div class="field field-full" id="factEmailCCWrap" style="display:none">
+              <label for="fact_email_cc">Con copia (CC) <span class="field-optional">(opcional)</span></label>
+              <div class="input-wrap">
+                <svg class="input-ico" viewBox="0 0 20 20" fill="none">
+                  <path d="M2 4h16v12H2z" stroke="currentColor" stroke-width="1.5" />
+                  <path d="M2 4l8 7 8-7" stroke="currentColor" stroke-width="1.5" />
+                </svg>
+                <input type="email" id="fact_email_cc" placeholder="correo-copia@example.com">
+              </div>
+            </div>
+            <div class="field field-full">
+              <button type="button" class="btn-add-cc" id="btnAddCC" onclick="toggleCC()">
+                + Agregar correo con copia (CC)
+              </button>
+            </div>
+          </div>
+
+          <div class="step-actions split">
+            <button class="btn btn-outline" id="btnBack3" type="button">Atrás</button>
+            <div style="display:flex;gap:10px;">
+              <button type="button" class="btn btn-outline" onclick="draftSave(); draftShowGuardado()"
+                style="color:var(--gold);border-color:rgba(202, 113, 31,.3);">
+                <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
+                  <path d="M4 4a2 2 0 0 1 2-2h6l4 4v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4z" stroke="currentColor"
+                    stroke-width="1.5" />
+                  <path d="M12 2v4h4M7 9h6M7 12h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                </svg>
+                Guardar borrador
+              </button>
+              <button class="btn btn-primary" id="btnNext3" type="button">Continuar</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ══ PASO 4 — Documentos ══ -->
+        <section id="step4" class="step-panel hidden">
+          <div class="panel-header">
+            <h2 class="panel-title">Documentos requeridos</h2>
+            <p class="panel-desc">Adjunta los documentos en formato <strong>PDF</strong> (máx. 30 MB por archivo). Los
+              marcados como <strong>Obligatorio</strong> son indispensables para enviar la solicitud.</p>
+          </div>
+
+          <div
+            style="margin: 16px 0; padding: 12px 16px; background: rgba(202, 113, 31,0.05); border: 1.5px solid rgba(202, 113, 31,0.15); border-radius: var(--radius-sm);">
+            <label class="welcome-checkbox-label" style="align-items: center;">
+              <input type="checkbox" id="es_filial" style="accent-color: var(--gold) !important;" onchange="document.getElementById('filialFields').style.display = this.checked ? 'grid' : 'none'">
+              <span class="welcome-checkbox-text" style="font-size: 13.5px; color: var(--text);">Marque aquí si es una filial e indique a cual pertenece</span>
+            </label>
+            <div id="filialFields" style="display:none; margin-top: 12px; gap: 16px;" class="grid-2">
+              <div class="field">
+                <label for="filial_razon_social">Razón social de la filial <span class="req">*</span></label>
+                <div class="input-wrap">
+                  <svg class="input-ico" viewBox="0 0 20 20" fill="none">
+                    <path d="M3 17V7l7-4 7 4v10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                  </svg>
+                  <input id="filial_razon_social" placeholder="Razón social completa" oninput="this.classList.remove('input-error')">
+                </div>
+              </div>
+              <div class="field">
+                <label for="filial_nit">NIT de la filial <span class="req">*</span></label>
+                <div class="input-wrap">
+                  <svg class="input-ico" viewBox="0 0 20 20" fill="none">
+                    <rect x="2" y="4" width="16" height="12" rx="2" stroke="currentColor" stroke-width="1.5" />
+                    <path d="M5 8h4M5 11h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                  </svg>
+                  <input id="filial_nit" placeholder="NIT (Ej: 9001234561)" oninput="this.classList.remove('input-error')">
+                </div>
+              </div>
+            </div>
+          </div>
+          <div id="docsList" class="docs-grid"></div>
+          <div class="step-actions split">
+            <button class="btn btn-outline" id="btnBack4" type="button">Atrás</button>
+            <div style="display:flex;gap:10px;">
+              <button type="button" class="btn btn-outline" onclick="draftSave(); draftShowGuardado()"
+                style="color:var(--gold);border-color:rgba(202, 113, 31,.3);">
+                <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
+                  <path d="M4 4a2 2 0 0 1 2-2h6l4 4v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4z" stroke="currentColor"
+                    stroke-width="1.5" />
+                  <path d="M12 2v4h4M7 9h6M7 12h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                </svg>
+                Guardar borrador
+              </button>
+              <button class="btn btn-primary" id="btnNext4" type="button">Continuar</button>
+            </div>
+          </div>
+        </section>
+
+
+
+        <!-- ══ PASO 5 — Confirmación ══ -->
+        <section id="step5" class="step-panel hidden">
+          <div class="panel-header">
+            <h2 class="panel-title">Confirmación y envío</h2>
+            <p class="panel-desc">Verifica la información antes de enviar. Una vez enviado, la solicitud ingresa al área
+              de créditos para análisis.</p>
+          </div>
+
+          <div class="summary-card" id="summaryCard"></div>
+
+          <div class="terms-block">
+            <div class="terms-title">Condiciones de la solicitud de crédito</div>
+            <div class="terms-text">
+              Por este medio autorizo y ordeno que los centros anteriores y/o CupoFlow S.A.S. hagan una investigación de la
+              situación financiera y crediticia de la empresa incluyendo una investigación acerca de las referencias
+              proporcionadas en este documento. Estoy facultado para exigir a la empresa que solicita el crédito a
+              efectuar el pago de todos los gastos incurridos en el (los) centro(es). Declaro y acepto que el
+              incumplimiento de pagos de la empresa a la que represento generará intereses de mora de acuerdo al valor
+              máximo establecido por ley, sin necesidad de requerimientos judiciales o extrajudiciales.
+            </div>
+          </div>
+
+          <div class="terms-block">
+            <div class="terms-title">Autorización para tratamiento de datos y consulta ante centrales de riesgo</div>
+            <div class="terms-text">
+              El abajo firmante, actuando en calidad de Representante Legal, autoriza de manera expresa a CupoFlow S.A.S. y
+              sus sociedades vinculadas para: <strong>(a)</strong> consultar en centrales de riesgo crediticio (Ley
+              1266/2008, Ley 2157/2021) la información relevante para valorar el riesgo crediticio; <strong>(b)</strong>
+              reportar y divulgar ante centrales de riesgo el comportamiento crediticio; <strong>(c)</strong> realizar
+              gestión de conocimiento del cliente; <strong>(d)</strong> adelantar gestión de cobranza en caso de mora.
+              El tratamiento de datos está sujeto a la Ley 1581 de 2012 y las políticas publicadas en
+              <strong>www.example.com</strong>.
+            </div>
+          </div>
+
+          <label class="toggle-accept" for="acepta">
+            <input type="checkbox" id="acepta">
+            <div class="toggle-track">
+              <div class="toggle-thumb"></div>
+            </div>
+            <span class="toggle-text">Acepto los términos, condiciones y autorizo el tratamiento de datos personales,
+              consulta y reporte ante centrales de riesgo. Bajo gravedad de juramento manifiesto que todos los datos
+              consignados son verídicos y verificables.</span>
+          </label>
+
+          <!-- ── Verificación por correo electrónico (Rediseñada) ── -->
+          <div class="verification-card" id="verification-block">
+            <div class="v-card-header">
+              <div class="v-icon-wrap"
+                style="width:36px; height:36px; background:rgba(208, 139, 67,0.1); border-radius:8px; display:flex; align-items:center; justify-content:center; color:var(--gold);">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;">
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                  <polyline points="22,6 12,13 2,6" />
+                </svg>
+              </div>
+              <div class="v-header-text" style="margin-left:12px;">
+                <span class="v-title"
+                  style="display:block; font-size:15px; font-weight:800; color:var(--text-dark);">Verificación de
+                  Identidad</span>
+                <span class="v-subtitle"
+                  style="display:block; font-size:11px; color:var(--text-light); text-transform:uppercase; letter-spacing:0.5px;">Enviaremos
+                  un código de seguridad</span>
+              </div>
+            </div>
+
+            <div class="v-card-body"
+              style="padding:20px; background:#fafcfc; border-radius:0 0 12px 12px; border-top:1px solid var(--border1);">
+              <p class="v-info-text" style="font-size:12.5px; color:#496b66; margin-bottom:20px; line-height:1.5;">
+                Para finalizar el proceso, enviaremos un código de confirmación al representante legal:
+                <strong id="display-correo-rep" style="color:var(--text-dark);">...</strong>
+              </p>
+
+              <div id="verify-initial-row">
+                <button type="button" class="btn btn-outline" id="btnSendVerification" onclick="sendVerificationCode()"
+                  style="border-color:var(--gold); color:var(--gold); font-weight:700; padding:10px 20px; width:100%; justify-content:center;">
+                  Enviar código de confirmación
+                </button>
+              </div>
+
+              <div id="verify-input-row" style="display:none;">
+                <label class="v-input-label"
+                  style="display:block; font-size:11px; font-weight:700; color:var(--text-light); text-transform:uppercase; margin-bottom:10px;">Ingresa
+                  el código de 6 caracteres:</label>
+                <div class="v-input-group" style="display:flex; gap:10px;">
+                  <input type="text" id="verification_code" maxlength="6" autocomplete="off" placeholder="XXXXXX"
+                    class="v-code-input"
+                    style="flex:1; font-size:20px; letter-spacing:5px; text-align:center; font-weight:800; text-transform:uppercase; border-radius:8px; border:2px solid var(--border2); padding:10px;">
+                  <button type="button" class="btn btn-primary" id="btnVerifyCode" onclick="verifyCode()"
+                    style="min-width:120px; font-weight:700;">
+                    Verificar
+                  </button>
+                </div>
+                <div id="verification-status-wrap" style="min-height:20px; margin-top:10px;">
+                  <p id="verification-status" style="font-size:12px; font-weight:700;"></p>
+                </div>
+                <button type="button" id="btnResendCode" onclick="sendVerificationCode()" class="btn-v-resend"
+                  style="background:none; border:none; color:var(--gold); font-size:11.5px; font-weight:600; cursor:pointer; text-decoration:underline; padding:0; margin-top:5px;">
+                  ¿No recibiste el código? Reenviar
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="step-actions split">
+            <button class="btn btn-outline" id="btnBack5" type="button">Atrás</button>
+            <button class="btn btn-primary btn-submit" id="btnSubmit" type="button" disabled>
+              <svg viewBox="0 0 20 20" fill="none">
+                <path d="M3 10L17 3l-4.5 14-2.5-5.5L3 10z" stroke="currentColor" stroke-width="1.5"
+                  stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              Enviar solicitud
+            </button>
+          </div>
+        </section>
+
+      </div>
+
+      <!-- Banner borrador -->
+      <div id="draftBanner" style="display:none; position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
+           z-index:8000; align-items:center; gap:12px; background:#194b3f; color:#fff;
+           padding:12px 18px; border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,.25);
+           font-family:'Outfit',sans-serif; font-size:13px; max-width:92vw;">
+        <svg id="draftBannerIco" width="18" height="18" viewBox="0 0 20 20" fill="none" style="display:none;">
+          <path d="M4 4a2 2 0 0 1 2-2h6l4 4v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4z" stroke="#d08b43" stroke-width="1.5" />
+          <path d="M12 2v4h4M7 9h6M7 12h6" stroke="#d08b43" stroke-width="1.5" stroke-linecap="round" />
+        </svg>
+        <span id="draftBannerText"></span>
+        <span id="draftBannerBtns" style="display:flex;gap:6px;align-items:center;"></span>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- ══ MODAL DE BIENVENIDA (INSTRUCTIVO Y POLÍTICAS) ══ -->
+  <div class="welcome-modal-overlay hidden" id="welcomeModal" aria-hidden="true">
+    <div class="welcome-modal-box" role="dialog" aria-modal="true" aria-labelledby="welcomeTitle">
+      <div class="welcome-modal-header">
+        <img src="https://lh3.googleusercontent.com/d/TU_LOGO_DRIVE_ID" alt="CupoFlow Logo">
+        <div class="welcome-modal-header-text">
+          <h2 class="welcome-modal-title" id="welcomeTitle">Instructivo y Políticas de Crédito</h2>
+          <div class="welcome-modal-subtitle">CupoFlow Hospitality Management Group</div>
+        </div>
+      </div>
+      <div class="welcome-modal-body">
+        <p class="welcome-intro-text">
+          Bienvenido(a) al proceso de solicitud de crédito corporativo de <strong>CupoFlow S.A.S.</strong> y sus
+          sociedades vinculadas y aliadas. Antes de iniciar el diligenciamiento del formulario, le solicitamos leer
+          detenidamente la siguiente información relacionada con nuestro proceso. También puede <a
+            href="https://drive.google.com/file/d/TU_DRIVE_FILE_ID/view?usp=sharing" target="_blank"
+            style="color: var(--gold); font-weight: 700; text-decoration: underline;">descargar el Instructivo y
+            Políticas de Crédito completo aquí</a>.
+        </p>
+
+        <!-- Tarjeta 1: ¿Quiénes pueden solicitar? -->
+        <div class="welcome-section-card">
+          <div class="welcome-section-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+              stroke-linejoin="round">
+              <rect x="4" y="2" width="16" height="20" rx="2" ry="2" />
+              <line x1="9" y1="22" x2="9" y2="16" />
+              <line x1="15" y1="22" x2="15" y2="16" />
+              <line x1="9" y1="16" x2="15" y2="16" />
+              <path d="M8 6h8" />
+              <path d="M8 10h8" />
+            </svg>
+            ¿Quiénes pueden solicitar crédito?
+          </div>
+          <div class="welcome-section-content">
+            Las solicitudes de crédito únicamente podrán ser solicitadas por:
+            <ul>
+              <li><strong>Personas jurídicas</strong> legalmente constituidas.</li>
+              <li>Empresas con domicilio principal o sucursal en <strong>Colombia</strong>.</li>
+            </ul>
+            <em>No se otorgarán créditos a personas naturales, empresas extranjeras o sin representación legal
+              vigente.</em>
+          </div>
+        </div>
+
+        <!-- Tarjeta 2: Documentos obligatorios -->
+        <div class="welcome-section-card">
+          <div class="welcome-section-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+              stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="16" y1="13" x2="8" y2="13" />
+              <line x1="16" y1="17" x2="8" y2="17" />
+              <polyline points="10 9 9 9 8 9" />
+            </svg>
+            Documentos obligatorios (en formato PDF)
+          </div>
+          <div class="welcome-section-content">
+            Para iniciar el estudio de crédito, es indispensable adjuntar:
+            <ul>
+              <li><strong>Certificado de Existencia y Representación Legal</strong> (expedición ≤ 30 días calendario).
+              </li>
+              <li>Copia del <strong>documento de identidad</strong> del representante legal.</li>
+              <li><strong>RUT actualizado</strong> y completo.</li>
+              <li><strong>Estados financieros</strong> de los dos (2) últimos años (o soportes equivalentes como
+                certificación de contador/revisor fiscal o carta firmada por el representante legal).</li>
+              <li><strong>Declaración de renta</strong> del último año gravable.</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Tarjeta 3: Condiciones generales -->
+        <div class="welcome-section-card">
+          <div class="welcome-section-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+              stroke-linejoin="round">
+              <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+              <line x1="1" y1="10" x2="23" y2="10" />
+            </svg>
+            Condiciones generales del crédito
+          </div>
+          <div class="welcome-section-content">
+            <ul>
+              <li><strong>Garantía de servicio:</strong> Todo evento requiere para su confirmación un anticipo mínimo del
+                <strong>30% del valor total y/o la firma de un contrato</strong> de prestación de servicios.</li>
+              <li><strong>Plazo único de pago:</strong> Treinta <strong>(30) días calendario</strong> a partir de la
+                radicación de la factura.</li>
+              <li><strong>Vigencia:</strong> Los créditos aprobados tendrán una vigencia de <strong>un (1) año</strong>,
+                tras el cual el cupo quedará inactivo y requerirá actualización documental completa.</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Tarjeta 4: Tiempos de respuesta -->
+        <div class="welcome-section-card">
+          <div class="welcome-section-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+              stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg>
+            Tiempos de respuesta y consideraciones
+          </div>
+          <div class="welcome-section-content">
+            El estudio de crédito tendrá un tiempo de respuesta de <strong>tres (3) días hábiles</strong>
+            a partir de la radicación de la solicitud con la documentación completa; este plazo podrá extenderse en
+            caso de requerir documentos o verificaciones adicionales.
+          </div>
+        </div>
+
+        <!-- Declaraciones obligatorias -->
+        <div class="welcome-declares">
+          <label class="welcome-checkbox-label">
+            <input type="checkbox" id="chkWelcomeTerms" onchange="checkWelcomeAcceptance()">
+            <span class="welcome-checkbox-text">
+              Declaro que he leído, comprendido y aceptado integralmente las políticas, condiciones, tiempos de
+              respuesta, validaciones jurídicas y financieras para el proceso de solicitud de crédito corporativo.
+            </span>
+          </label>
+          <label class="welcome-checkbox-label">
+            <input type="checkbox" id="chkWelcomeData" onchange="checkWelcomeAcceptance()">
+            <span class="welcome-checkbox-text">
+              Autorizo el tratamiento de datos personales de acuerdo a las finalidades establecidas por CENTROS DEMO en las
+              políticas de solicitud de crédito y comprendo que puedo acceder a la política de tratamiento de datos en
+              <a href="https://www.example.com/" target="_blank">https://www.example.com/</a>.
+            </span>
+          </label>
+        </div>
+      </div>
+      <div class="welcome-modal-footer">
+        <button class="btn btn-primary" id="btnWelcomeAccept" type="button" onclick="closeWelcomeModal()"
+          disabled>Aceptar y continuar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ MODAL DE CARGA ══ -->
+  <div class="modal-overlay hidden" id="uploadModal" aria-hidden="true" onclick="handleModalBackdropClick(event)">
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modalTitle"
+      style="animation:slideUpBox .22s ease;">
+      <div class="modal-header">
+        <div class="modal-icon">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" />
+            <polyline points="17 8 12 3 7 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            <line x1="12" y1="3" x2="12" y2="15" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </div>
+        <div>
+          <div class="modal-title" id="modalTitle">Enviando solicitud</div>
+          <div class="modal-sub">Por favor no cierres esta pestaña mientras se procesan los archivos.</div>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="progress-track" style="margin-top:4px;">
+          <div class="progress-bar" id="uploadBar" style="width:0%"></div>
+        </div>
+        <div class="upload-status">
+          <span id="uploadText">Preparando...</span>
+          <span id="uploadPct">0%</span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" id="btnModalClose" type="button" onclick="closeUploadModal()"
+          disabled>Cerrar</button>
+      </div>
+    </div>
+  </div>
+  <!-- ═══════════════════════════════════════════════════
+       MODAL: SUBSANACIÓN DE DOCUMENTOS (Devolución)
+       ═══════════════════════════════════════════════════ -->
+  <div id="modalSubsanar" class="val-modal-overlay hidden" role="dialog" aria-modal="true" style="z-index: 1500; display:none; align-items:center; justify-content:center; padding: 20px;">
+    <div class="val-modal-box" style="max-width: 660px; width: 100%; max-height: 90vh; overflow-y: auto; background: #ffffff; border-radius: 18px; box-shadow: 0 25px 60px -15px rgba(14, 54, 47, 0.28); border: 1px solid rgba(25, 75, 63, 0.12); padding: 30px;">
+      
+      <!-- Head -->
+      <div id="subsanarHeader" style="display:flex; align-items:flex-start; justify-content:space-between; margin-bottom: 20px; border-bottom: 1px solid #f1f9f8; padding-bottom: 18px;">
+        <div style="display:flex; align-items:center; gap: 14px;">
+          <div style="width: 46px; height: 46px; border-radius: 12px; background: linear-gradient(135deg, rgba(208, 139, 67, 0.18), rgba(208, 139, 67, 0.06)); color: var(--gold, #d08b43); border: 1px solid rgba(208, 139, 67, 0.3); display: flex; align-items: center; justify-content: center; flex-shrink:0;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+          </div>
+          <div>
+            <h2 style="margin: 0; font-size: 19px; font-weight: 700; color: #194b3f; font-family: 'Outfit', sans-serif; letter-spacing: -0.2px;">Subsanación de Documentos</h2>
+            <p style="margin: 3px 0 0; font-size: 12.5px; color: #638c8c; font-family: 'Outfit', sans-serif;">Adjunta los documentos pendientes o completa el refrendo solicitado</p>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px; flex-shrink:0;">
+          <span style="background:#fff6eb; color:#b45309; font-weight:700; font-size:11px; padding:5px 12px; border-radius:20px; border:1px solid #ffcb88; white-space:nowrap; letter-spacing:0.5px; font-family:'Outfit',sans-serif;">SOLICITUD DEVUELTA</span>
+          <button type="button" onclick="closeSubsanarModal()" style="background:#f8fcfc; border:1px solid #e2f0f0; color:#638c8c; cursor:pointer; width:32px; height:32px; display:flex; align-items:center; justify-content:center; border-radius:8px; transition:all .15s ease;" title="Cerrar ventana" onmouseover="this.style.color='#0e362f'; this.style.borderColor='#cae2e1'" onmouseout="this.style.color='#638c8c'; this.style.borderColor='#e2f0f0'">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Main Body Content -->
+      <div id="subsanarBodyContent">
+        <!-- Solicitud info banner -->
+        <div id="subsanarInfoBanner" style="background:#f8fcfc; border:1px solid #e2f0f0; border-radius:12px; padding:14px 18px; margin-bottom:18px;">
+          <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:12px; font-size:12.5px; font-family:'Outfit',sans-serif;">
+            <div><div style="font-size:11px; font-weight:700; color:#93b9b9; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px;">Empresa</div><strong id="subsanarRazon" style="color:#194b3f; font-weight:600; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">—</strong></div>
+            <div><div style="font-size:11px; font-weight:700; color:#93b9b9; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px;">NIT</div><strong id="subsanarNit" style="color:#194b3f; font-weight:600; display:block;">—</strong></div>
+            <div><div style="font-size:11px; font-weight:700; color:#93b9b9; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px;">Radicado</div><strong id="subsanarCodigo" style="color:var(--gold,#d08b43); font-family:var(--font-mono, monospace); font-weight:700; display:block;">—</strong></div>
+          </div>
+        </div>
+
+        <!-- Observaciones Alert -->
+        <div style="background:#fff6eb; border:1px solid #ffe6c6; border-left:4px solid #df4300; border-radius:10px; padding:14px 18px; margin-bottom:20px; font-family:'Outfit',sans-serif;">
+          <div style="font-size:11.5px; font-weight:700; color:#92400e; margin-bottom:4px; text-transform:uppercase; letter-spacing:0.5px; display:flex; align-items:center; gap:6px;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            Observaciones del Comité de Crédito:
+          </div>
+          <p id="subsanarObservaciones" style="margin:0; font-size:13.5px; color:#78350f; line-height:1.5; white-space:pre-wrap; font-weight:500;">Cargando observaciones...</p>
+        </div>
+
+        <!-- Upload Slots -->
+        <div style="margin-bottom:22px;">
+          <div style="font-size:13px; font-weight:700; color:#194b3f; margin-bottom:12px; font-family:'Outfit',sans-serif; display:flex; align-items:center; gap:8px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--gold,#d08b43)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+            Documentos a subsanar (formato PDF):
+          </div>
+          
+          <div id="subsanarSlotsContainer" style="display:flex; flex-direction:column; gap:10px;">
+            <!-- Slot Cámara -->
+            <div class="subsanar-slot" data-tipo="CERT_EXISTENCIA" style="display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border:1.5px solid #edf7f6; border-radius:12px; background:#ffffff; transition:all .2s ease; box-shadow:0 2px 6px rgba(0,0,0,0.02);">
+              <div style="display:flex; align-items:center; gap:14px; min-width:0;">
+                <div style="width:38px; height:38px; border-radius:10px; background:rgba(208, 139, 67,0.12); color:var(--gold,#d08b43); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+                </div>
+                <div style="min-width:0;">
+                  <div style="font-size:13px; font-weight:600; color:#1d3b3c; font-family:'Outfit',sans-serif; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Certificado de Cámara de Comercio (Vigente &le; 30 días)</div>
+                  <div class="subsanar-file-name" id="subsanarName_CERT_EXISTENCIA" style="font-size:11.5px; color:#638c8c; margin-top:2px;">No adjuntado</div>
+                </div>
+              </div>
+              <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+                <button type="button" class="btn btn-outline btn-sm" id="subsanarBtn_CERT_EXISTENCIA" onclick="triggerSubsanarFile('CERT_EXISTENCIA')" style="font-size:12px; padding:7px 16px; border-radius:8px; font-weight:600; font-family:'Outfit',sans-serif;">Seleccionar PDF</button>
+                <button type="button" id="subsanarBtnRemove_CERT_EXISTENCIA" onclick="removerSubsanarFile('CERT_EXISTENCIA')" style="display:none; background:#fee2e2; border:none; color:#ef4444; cursor:pointer; width:30px; height:30px; border-radius:6px; align-items:center; justify-content:center;" title="Quitar archivo">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </button>
+              </div>
+              <input type="file" id="subsanarFile_CERT_EXISTENCIA" accept="application/pdf" style="display:none;" onchange="handleSubsanarFile(event, 'CERT_EXISTENCIA')">
+            </div>
+
+            <!-- Slot RUT -->
+            <div class="subsanar-slot" data-tipo="RUT" style="display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border:1.5px solid #edf7f6; border-radius:12px; background:#ffffff; transition:all .2s ease; box-shadow:0 2px 6px rgba(0,0,0,0.02);">
+              <div style="display:flex; align-items:center; gap:14px; min-width:0;">
+                <div style="width:38px; height:38px; border-radius:10px; background:rgba(208, 139, 67,0.12); color:var(--gold,#d08b43); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                </div>
+                <div style="min-width:0;">
+                  <div style="font-size:13px; font-weight:600; color:#1d3b3c; font-family:'Outfit',sans-serif; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">RUT Oficial DIAN (Completo)</div>
+                  <div class="subsanar-file-name" id="subsanarName_RUT" style="font-size:11.5px; color:#638c8c; margin-top:2px;">No adjuntado</div>
+                </div>
+              </div>
+              <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+                <button type="button" class="btn btn-outline btn-sm" id="subsanarBtn_RUT" onclick="triggerSubsanarFile('RUT')" style="font-size:12px; padding:7px 16px; border-radius:8px; font-weight:600; font-family:'Outfit',sans-serif;">Seleccionar PDF</button>
+                <button type="button" id="subsanarBtnRemove_RUT" onclick="removerSubsanarFile('RUT')" style="display:none; background:#fee2e2; border:none; color:#ef4444; cursor:pointer; width:30px; height:30px; border-radius:6px; align-items:center; justify-content:center;" title="Quitar archivo">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </button>
+              </div>
+              <input type="file" id="subsanarFile_RUT" accept="application/pdf" style="display:none;" onchange="handleSubsanarFile(event, 'RUT')">
+            </div>
+
+            <!-- Slot Cédula -->
+            <div class="subsanar-slot" data-tipo="CEDULA_REP" style="display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border:1.5px solid #edf7f6; border-radius:12px; background:#ffffff; transition:all .2s ease; box-shadow:0 2px 6px rgba(0,0,0,0.02);">
+              <div style="display:flex; align-items:center; gap:14px; min-width:0;">
+                <div style="width:38px; height:38px; border-radius:10px; background:rgba(208, 139, 67,0.12); color:var(--gold,#d08b43); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><circle cx="8" cy="12" r="2"/><line x1="13" y1="10" x2="19" y2="10"/><line x1="13" y1="14" x2="17" y2="14"/></svg>
+                </div>
+                <div style="min-width:0;">
+                  <div style="font-size:13px; font-weight:600; color:#1d3b3c; font-family:'Outfit',sans-serif; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Copia de Cédula del Representante Legal</div>
+                  <div class="subsanar-file-name" id="subsanarName_CEDULA_REP" style="font-size:11.5px; color:#638c8c; margin-top:2px;">No adjuntado</div>
+                </div>
+              </div>
+              <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+                <button type="button" class="btn btn-outline btn-sm" id="subsanarBtn_CEDULA_REP" onclick="triggerSubsanarFile('CEDULA_REP')" style="font-size:12px; padding:7px 16px; border-radius:8px; font-weight:600; font-family:'Outfit',sans-serif;">Seleccionar PDF</button>
+                <button type="button" id="subsanarBtnRemove_CEDULA_REP" onclick="removerSubsanarFile('CEDULA_REP')" style="display:none; background:#fee2e2; border:none; color:#ef4444; cursor:pointer; width:30px; height:30px; border-radius:6px; align-items:center; justify-content:center;" title="Quitar archivo">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </button>
+              </div>
+              <input type="file" id="subsanarFile_CEDULA_REP" accept="application/pdf" style="display:none;" onchange="handleSubsanarFile(event, 'CEDULA_REP')">
+            </div>
+
+            <!-- Slot Estados Financieros -->
+            <div class="subsanar-slot" data-tipo="ESTADOS_FIN" style="display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border:1.5px solid #edf7f6; border-radius:12px; background:#ffffff; transition:all .2s ease; box-shadow:0 2px 6px rgba(0,0,0,0.02);">
+              <div style="display:flex; align-items:center; gap:14px; min-width:0;">
+                <div style="width:38px; height:38px; border-radius:10px; background:rgba(208, 139, 67,0.12); color:var(--gold,#d08b43); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                </div>
+                <div style="min-width:0;">
+                  <div style="font-size:13px; font-weight:600; color:#1d3b3c; font-family:'Outfit',sans-serif; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Estados Financieros / Declaración de Renta</div>
+                  <div class="subsanar-file-name" id="subsanarName_ESTADOS_FIN" style="font-size:11.5px; color:#638c8c; margin-top:2px;">No adjuntado</div>
+                </div>
+              </div>
+              <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+                <button type="button" class="btn btn-outline btn-sm" id="subsanarBtn_ESTADOS_FIN" onclick="triggerSubsanarFile('ESTADOS_FIN')" style="font-size:12px; padding:7px 16px; border-radius:8px; font-weight:600; font-family:'Outfit',sans-serif;">Seleccionar PDF</button>
+                <button type="button" id="subsanarBtnRemove_ESTADOS_FIN" onclick="removerSubsanarFile('ESTADOS_FIN')" style="display:none; background:#fee2e2; border:none; color:#ef4444; cursor:pointer; width:30px; height:30px; border-radius:6px; align-items:center; justify-content:center;" title="Quitar archivo">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </button>
+              </div>
+              <input type="file" id="subsanarFile_ESTADOS_FIN" accept="application/pdf" style="display:none;" onchange="handleSubsanarFile(event, 'ESTADOS_FIN')">
+            </div>
+
+            <!-- Slot Otro / Adicional -->
+            <div class="subsanar-slot" data-tipo="OTRO" style="display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border:1.5px solid #edf7f6; border-radius:12px; background:#ffffff; transition:all .2s ease; box-shadow:0 2px 6px rgba(0,0,0,0.02);">
+              <div style="display:flex; align-items:center; gap:14px; min-width:0;">
+                <div style="width:38px; height:38px; border-radius:10px; background:rgba(208, 139, 67,0.12); color:var(--gold,#d08b43); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                </div>
+                <div style="min-width:0;">
+                  <div style="font-size:13px; font-weight:600; color:#1d3b3c; font-family:'Outfit',sans-serif; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Otro Documento o Carta de Referencias</div>
+                  <div class="subsanar-file-name" id="subsanarName_OTRO" style="font-size:11.5px; color:#638c8c; margin-top:2px;">No adjuntado</div>
+                </div>
+              </div>
+              <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+                <button type="button" class="btn btn-outline btn-sm" id="subsanarBtn_OTRO" onclick="triggerSubsanarFile('OTRO')" style="font-size:12px; padding:7px 16px; border-radius:8px; font-weight:600; font-family:'Outfit',sans-serif;">Seleccionar PDF</button>
+                <button type="button" id="subsanarBtnRemove_OTRO" onclick="removerSubsanarFile('OTRO')" style="display:none; background:#fee2e2; border:none; color:#ef4444; cursor:pointer; width:30px; height:30px; border-radius:6px; align-items:center; justify-content:center;" title="Quitar archivo">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </button>
+              </div>
+              <input type="file" id="subsanarFile_OTRO" accept="application/pdf" style="display:none;" onchange="handleSubsanarFile(event, 'OTRO')">
+            </div>
+          </div>
+        </div>
+
+        <!-- SEGUNDA FIRMA / DOBLE FIRMA SECTION (LUXURY FINTECH CENTROS DEMO) -->
+        <div id="subsanarSegundaFirmaContainer" style="margin-bottom:22px; border:1.5px solid rgba(208, 139, 67, 0.35); border-radius:14px; padding:20px 22px; background:linear-gradient(180deg, #ffffff 0%, #fafcfc 100%); box-shadow:0 4px 18px rgba(14, 54, 47, 0.04); position:relative; overflow:hidden;">
+          <div style="position:absolute; top:0; left:0; right:0; height:3.5px; background:linear-gradient(90deg, #d08b43 0%, #e5aa72 100%);"></div>
+
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+            <div style="display:flex; align-items:center; gap:10px;">
+              <div style="width:32px; height:32px; border-radius:8px; background:#194b3f; color:#d08b43; display:flex; align-items:center; justify-content:center; flex-shrink:0; box-shadow:0 2px 6px rgba(25, 75, 63,0.2);">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+              </div>
+              <span style="font-size:14px; font-weight:700; color:#194b3f; font-family:'Outfit',sans-serif; letter-spacing:-0.2px;">Segunda Firma / Refrendo de Representante Legal</span>
+            </div>
+            <span id="subsanarFirmaBadge" style="font-size:11px; font-weight:700; padding:4px 12px; border-radius:20px; background:#efffff; color:#18bedd; border:1px solid #befffd; font-family:'Outfit',sans-serif;">Refrendo Digital Requerido</span>
+          </div>
+
+          <p style="margin:0 0 16px; font-size:12.5px; color:#638c8c; line-height:1.5; font-family:'Outfit',sans-serif;">
+            Si el cupo o la evaluación requiere refrendo conjunto, selecciona el representante legal facultado e ingresa su correo corporativo para validar su firma vía código OTP:
+          </p>
+
+          <div style="display:grid; grid-template-columns:1fr; gap:14px; margin-bottom:4px;">
+            <div>
+              <label for="subsanarRepSelect" style="display:block; font-size:12px; font-weight:700; color:#1d3b3c; margin-bottom:6px; font-family:'Outfit',sans-serif; text-transform:uppercase; letter-spacing:0.4px;">Representante Legal Autorizado:</label>
+              <select id="subsanarRepSelect" onchange="handleSubsanarRepChange()" style="width:100%; padding:11px 14px; border:1.5px solid #cae2e1; border-radius:10px; font-size:13px; background:#f8fcfc; color:#194b3f; font-family:'Outfit',sans-serif; font-weight:500; transition:all .15s ease; outline:none;" onfocus="this.style.borderColor='#d08b43'; this.style.background='#ffffff'; this.style.boxShadow='0 0 0 3px rgba(208, 139, 67,0.15)'" onblur="this.style.borderColor='#cae2e1'; this.style.background='#f8fcfc'; this.style.boxShadow='none'">
+                <option value="">-- Selecciona un representante extraído de la Cámara de Comercio --</option>
+                <option value="__OTRO__">Otro Representante Legal (Ingresar manualmente)...</option>
+              </select>
+            </div>
+
+            <div id="subsanarRepManualWrap" style="display:none; grid-template-columns:1fr 1fr; gap:12px;">
+              <div>
+                <label for="subsanarRepManualNombre" style="display:block; font-size:11.5px; font-weight:700; color:#1d3b3c; margin-bottom:5px; font-family:'Outfit',sans-serif; text-transform:uppercase; letter-spacing:0.4px;">Nombre Completo:</label>
+                <input type="text" id="subsanarRepManualNombre" placeholder="Nombre completo del representante" style="width:100%; padding:10px 12px; border:1.5px solid #cae2e1; border-radius:8px; font-size:13px; font-family:'Outfit',sans-serif; background:#ffffff; color:#194b3f;" oninput="onSubsanarRepDataChange()">
+              </div>
+              <div>
+                <label for="subsanarRepManualCargo" style="display:block; font-size:11.5px; font-weight:700; color:#1d3b3c; margin-bottom:5px; font-family:'Outfit',sans-serif; text-transform:uppercase; letter-spacing:0.4px;">Cargo Oficial:</label>
+                <input type="text" id="subsanarRepManualCargo" placeholder="Ej: Representante Legal Suplente" style="width:100%; padding:10px 12px; border:1.5px solid #cae2e1; border-radius:8px; font-size:13px; font-family:'Outfit',sans-serif; background:#ffffff; color:#194b3f;" oninput="onSubsanarRepDataChange()">
+              </div>
+            </div>
+
+            <div>
+              <label for="subsanarRepEmail" style="display:block; font-size:12px; font-weight:700; color:#1d3b3c; margin-bottom:6px; font-family:'Outfit',sans-serif; text-transform:uppercase; letter-spacing:0.4px;">Correo Electrónico Corporativo del Segundo Firmante:</label>
+              <div style="display:flex; gap:10px;">
+                <input type="email" id="subsanarRepEmail" placeholder="correo.firmante@example.com" style="flex:1; padding:11px 14px; border:1.5px solid #cae2e1; border-radius:10px; font-size:13px; font-family:'Outfit',sans-serif; background:#f8fcfc; color:#194b3f; outline:none; transition:all .15s ease;" onfocus="this.style.borderColor='#d08b43'; this.style.background='#ffffff'; this.style.boxShadow='0 0 0 3px rgba(208, 139, 67,0.15)'" onblur="this.style.borderColor='#cae2e1'; this.style.background='#f8fcfc'; this.style.boxShadow='none'" oninput="onSubsanarRepEmailChange()">
+                <button type="button" id="btnSubsanarSendOtp" class="btn btn-secondary" onclick="sendSubsanarOtp()" style="padding:11px 20px; font-size:13px; font-weight:700; white-space:nowrap; border-radius:10px; background:linear-gradient(135deg, #194b3f 0%, #0e362f 100%); color:#ffffff; border:none; cursor:pointer; font-family:'Outfit',sans-serif; box-shadow:0 3px 8px rgba(14, 54, 47,0.15); transition:all .2s ease; display:flex; align-items:center; gap:6px;">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                  Enviar Código OTP
+                </button>
+              </div>
+              <span id="subsanarEmailHint" style="display:block; font-size:11.5px; color:#638c8c; margin-top:5px; font-family:'Outfit',sans-serif;">Se enviará un código de seguridad de 6 caracteres para certificar la firma electrónica.</span>
+            </div>
+
+            <!-- OTP Input Box -->
+            <div id="subsanarOtpBox" style="display:none; background:#f8fcfc; border:1.5px solid #e2f0f0; border-radius:12px; padding:16px; margin-top:6px; box-shadow:0 4px 12px rgba(0,0,0,0.02);">
+              <div style="font-size:12.5px; font-weight:700; color:#194b3f; margin-bottom:8px; font-family:'Outfit',sans-serif;">Ingresa el código de 6 caracteres enviado al correo:</div>
+              <div style="display:flex; gap:10px; align-items:center;">
+                <input type="text" id="subsanarOtpInput" maxlength="6" placeholder="EJ: 9X4B72" style="width:160px; padding:10px 14px; font-size:17px; font-weight:800; font-family:var(--font-mono, monospace); letter-spacing:4px; text-transform:uppercase; text-align:center; border:2px solid var(--gold,#d08b43); border-radius:8px; background:#ffffff; color:#194b3f; outline:none; box-shadow:0 2px 6px rgba(208, 139, 67,0.15);">
+                <button type="button" id="btnSubsanarVerifyOtp" onclick="verifySubsanarOtp()" style="padding:11px 22px; font-size:13px; font-weight:700; background:linear-gradient(135deg, #d08b43 0%, #af6e2d 100%); color:#ffffff; border:none; border-radius:8px; cursor:pointer; font-family:'Outfit',sans-serif; box-shadow:0 3px 10px rgba(208, 139, 67,0.3); transition:transform .1s ease;">
+                  Validar Código
+                </button>
+              </div>
+              <div id="subsanarOtpError" style="color:#ef4444; font-size:12px; font-weight:600; margin-top:6px; display:none; font-family:'Outfit',sans-serif;"></div>
+            </div>
+
+            <!-- Verified Stamp Badge -->
+            <div id="subsanarOtpSuccessBadge" style="display:none; background:#f0fdf4; border:1.5px solid #86efac; border-radius:10px; padding:12px 16px; align-items:center; gap:10px; color:#166534; font-size:13px; font-weight:700; font-family:'Outfit',sans-serif;">
+              <div style="width:24px; height:24px; border-radius:50%; background:#22c55e; color:#ffffff; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              </div>
+              <span>Segunda firma refrendada electrónicamente con éxito vía código OTP</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Action Footer -->
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-top:24px; padding-top:18px; border-top:1px solid #f1f9f8;">
+          <button type="button" onclick="closeSubsanarModal()" style="background:#f8fcfc; color:#466A6A; border:1.5px solid #cae2e1; border-radius:10px; padding:10px 22px; font-weight:600; font-size:13.5px; font-family:'Outfit',sans-serif; cursor:pointer; transition:all .15s ease;" onmouseover="this.style.background='#e2f0f0'; this.style.color='#1d3b3c'" onmouseout="this.style.background='#f8fcfc'; this.style.color='#466A6A'">
+            Cerrar
+          </button>
+          <button type="button" id="btnEnviarSubsanar" onclick="enviarSubsanacion()" disabled style="background:linear-gradient(135deg, #d08b43 0%, #af6e2d 100%); color:#ffffff; border:none; padding:11px 26px; font-weight:700; font-size:14px; font-family:'Outfit',sans-serif; border-radius:10px; cursor:pointer; box-shadow:0 4px 14px rgba(208, 139, 67,0.35); transition:all .2s ease; display:flex; align-items:center; gap:8px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            Enviar Subsanación
+          </button>
+        </div>
+      </div>
+
+      <!-- Success Screen State -->
+      <div id="subsanarSuccessState" style="text-align:center; padding:36px 20px; display:none; font-family:'Outfit',sans-serif;">
+        <div style="width:68px; height:68px; border-radius:50%; background:linear-gradient(135deg, rgba(34, 197, 94, 0.2), rgba(34, 197, 94, 0.08)); color:#16a34a; display:flex; align-items:center; justify-content:center; margin:0 auto 20px; border:2px solid rgba(34, 197, 94, 0.4); box-shadow:0 6px 20px rgba(34,197,94,0.15);">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <h3 style="margin:0 0 10px; font-size:22px; font-weight:700; color:#194b3f; font-family:'Outfit', sans-serif;">¡Documentos enviados con éxito!</h3>
+        <p style="color:#638c8c; font-size:14px; line-height:1.6; max-width:460px; margin:0 auto 24px;">Tu solicitud de crédito ha sido actualizada y remitida al <strong>Comité de Crédito</strong> para su reevaluación inmediata. Te notificaremos por correo electrónico una vez finalice la revisión.</p>
+        <button type="button" onclick="closeSubsanarModal()" style="background:linear-gradient(135deg, #d08b43 0%, #af6e2d 100%); color:#ffffff; border:none; padding:12px 34px; font-weight:700; font-size:14px; font-family:'Outfit',sans-serif; border-radius:10px; cursor:pointer; box-shadow:0 4px 14px rgba(208, 139, 67,0.35);">
+          Entendido, Cerrar
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ══ PANEL LATERAL DE CONSULTA DE ESTADO ══ -->
+  <div class="side-panel-overlay" id="statusSidePanelOverlay" onclick="closeConsultarPanel()"></div>
+  <div class="side-panel" id="statusSidePanel">
+    <div class="side-panel-header">
+      <h3 class="side-panel-title">Consultar Estado de Solicitud</h3>
+      <button type="button" class="side-panel-close" onclick="closeConsultarPanel()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+          stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+    <div class="side-panel-body">
+      <p class="side-panel-desc">Ingresa tu código de radicado para conocer el estado actual y las observaciones de tu
+        solicitud de crédito.</p>
+
+      <div class="search-box">
+        <input type="text" id="txtConsultarCodigo" placeholder="Ej: 20260101-AMP-EMPRESA-A1B2" autocomplete="off"
+          onkeydown="if(event.key==='Enter') performStatusConsultation()">
+        <button type="button" class="btn btn-primary" onclick="performStatusConsultation()" id="btnPerformConsultation">
+          Buscar
+        </button>
+      </div>
+
+      <div id="statusResultContainer" class="status-result-container">
+        <div class="status-empty-state">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+            stroke-linejoin="round" style="width:40px; height:40px; margin-bottom:12px; opacity:0.4;">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <p style="margin:0; font-size:13px; color:var(--text-light);">Ingresa un código de radicado para comenzar.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <?!= include('State'); ?>
+  <?!= include('Controls'); ?>
+
+  <?!= include('UI'); ?>
+  <?!= include('Docs'); ?>
+  <?!= include('Submit'); ?>
+  <?!= include('Init'); ?>
+  <?!= include('FAQ'); ?>
+</body>
+
+</html>

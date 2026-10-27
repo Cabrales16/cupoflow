@@ -1,0 +1,160 @@
+<script>
+/* ─────────────────────────────────────────────────────────────────────────
+   JS_Auditoria.html — Vista del log de auditoría
+   CupoFlow · Panel de Control y Administración - Solicitud de Créditos
+   ───────────────────────────────────────────────────────────────────────── */
+
+// ─── Carga ────────────────────────────────────────────────────────────────────
+
+/**
+ * Carga los últimos 100 eventos del log de auditoría desde el backend.
+ * Muestra skeleton mientras carga.
+ * Llamado por el router al navegar a la vista 'auditoria'.
+ */
+function cargarAuditoria() {
+  const token = STATE?.authToken || sessionStorage.getItem('hd_panel_token') || '';
+  hide('auditoriaTableWrap');
+  show('auditoriaSkeletonWrap');
+  showLoading();
+
+  google.script.run
+    .withSuccessHandler(renderAuditoria)
+    .withFailureHandler(err => {
+      hide('auditoriaSkeletonWrap');
+      show('auditoriaTableWrap');
+      hideLoading();
+      showToast('Error al cargar el log de auditoría: ' + err.message, 'error');
+    })
+    .apiGetLogAuditoria(token, 100);
+}
+
+// ─── Render ───────────────────────────────────────────────────────────────────
+
+/**
+ * Renderiza la tabla del log de auditoría.
+ * @param {Array} rows - Array de eventos de auditoría.
+ */
+function renderAuditoria(rows) {
+  const tbody = document.getElementById('auditoriaTableBody');
+  if (!tbody) {
+    hideLoading();
+    return;
+  }
+
+  if (rows.length === 0) {
+    tbody.innerHTML =
+      '<tr><td colspan="6" style="text-align:center;padding:36px;color:var(--muted);">' +
+      'No hay eventos de auditoría registrados todavía.</td></tr>';
+  } else {
+    tbody.innerHTML = rows.map(_buildAuditoriaRow).join('');
+  }
+
+  hide('auditoriaSkeletonWrap');
+  show('auditoriaTableWrap');
+  hideLoading();
+}
+
+/**
+ * Abre el expediente de una solicitud desde la vista de auditoría.
+ * @param {string} uuid - UUID si está disponible.
+ * @param {string} codigo - Código de la solicitud.
+ */
+function abrirExpedienteDesdeAuditoria(uuid, codigo) {
+  if (uuid) {
+    abrirExpediente(uuid);
+    return;
+  }
+  if (!codigo) return;
+  const found = (STATE.solicitudes || []).find(s => s.codigo_solicitud === codigo);
+  if (found && found.uuid) {
+    abrirExpediente(found.uuid);
+    return;
+  }
+  abrirExpediente(codigo);
+}
+
+/**
+ * Construye el HTML de una fila de auditoría.
+ * @param  {Object} r - Evento de auditoría.
+ * @return {string}    - HTML de la fila <tr>.
+ */
+function _buildAuditoriaRow(r) {
+  let metaDisplay = '';
+  try {
+    const obj = JSON.parse(r.metadata_json || '{}');
+    metaDisplay = Object.keys(obj).length ? JSON.stringify(obj, null, 0) : '';
+  } catch (_) { metaDisplay = r.metadata_json || ''; }
+
+  const codSol = (r.codigo_solicitud || '').trim();
+  const solHtml = codSol
+    ? `<button type="button" class="btn-sol-direct" onclick="abrirExpedienteDesdeAuditoria('${escHtml(r.uuid || '')}', '${escHtml(codSol)}')" title="Ver expediente de ${escHtml(codSol)}" style="background:rgba(202, 113, 31,0.08);color:var(--gold,#ca711f);border:1px solid rgba(202, 113, 31,0.25);border-radius:6px;padding:3px 8px;font-family:var(--font-mono);font-size:12px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .15s ease;" onmouseover="this.style.background='var(--gold,#ca711f)';this.style.color='#fff'" onmouseout="this.style.background='rgba(202, 113, 31,0.08)';this.style.color='var(--gold,#ca711f)'">
+        <span>${escHtml(codSol)}</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+      </button>`
+    : '<span class="td-muted">—</span>';
+
+  return '<tr>' +
+    '<td class="td-mono td-muted" style="font-size:11px;">' + escHtml(r.id) + '</td>' +
+    '<td class="td-mono" style="font-size:12px;">' + formatFecha(r.fecha_evento) + '</td>' +
+    '<td style="font-size:13px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
+      escHtml(r.actor) +
+    '</td>' +
+    '<td>' + _getAuditBadge(r.accion) + '</td>' +
+    '<td>' + solHtml + '</td>' +
+    '<td style="font-size:11px;color:var(--muted);font-family:var(--font-mono);' +
+      'max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" ' +
+      'title="' + escHtml(metaDisplay) + '">' +
+      escHtml(truncate(metaDisplay, 55)) +
+    '</td>' +
+    '</tr>';
+}
+
+/**
+ * Genera el badge de color para cada tipo de acción de auditoría, eliminando tecnicismos.
+ * @param  {string} accion - Código de la acción.
+ * @return {string}         - HTML del badge.
+ */
+function _getAuditBadge(accion) {
+  const raw = (accion || '').toUpperCase().trim();
+  
+  // Mapeo de constantes técnicas a etiquetas en español entendibles (sentence-case)
+  const textMap = {
+    'PROCESAR_IA'               : 'Procesando con IA',
+    'GUARDAR_RESULTADO_IA'      : 'Guardado de resultado IA',
+    'EDITAR_SOLICITUD'          : 'Edición de solicitud',
+    'ELIMINAR_SOLICITUD'        : 'Eliminación de solicitud',
+    'SUBIR_DOCUMENTO_ADICIONAL' : 'Documento adicional subido',
+    'ELIMINAR_DOCUMENTO'        : 'Documento eliminado',
+    'ACTUALIZAR_CREDITO'        : 'Crédito actualizado',
+    'ELIMINAR_CREDITO'          : 'Crédito eliminado',
+    'TOGGLE_PERFIL_CREADO'      : 'Cambio estado de perfil contable',
+    'CREAR_CREDITO_MANUAL'      : 'Registro manual de crédito',
+    'IMPORTAR_LOTES_PLANTILLA'  : 'Importación masiva',
+    'VENCIDO'                   : 'Alerta de vencimiento',
+    'APROBADA'                  : 'Solicitud aprobada',
+    'ACTIVA'                    : 'Solicitud aprobada',
+    'ACTIVO'                    : 'Solicitud aprobada',
+    'RECHAZADA'                 : 'Solicitud rechazada',
+    'RECHAZADA TEMPORALMENTE'   : 'Solicitud rechazada temp.',
+    'EN_REVISION'               : 'Solicitud en revisión',
+    'PENDIENTE'                 : 'Solicitud pendiente'
+  };
+  
+  const labelText = textMap[raw] || raw;
+
+  // Asignar clase de color según el tipo de acción
+  let cls = 'badge-synced'; // color neutro / gris
+  
+  if (raw === 'APROBADA' || raw === 'ACTIVA' || raw === 'ACTIVO' || raw === 'GUARDAR_RESULTADO_IA') {
+    cls = 'badge-approved'; // verde / success
+  } else if (raw.includes('PENDIENTE') || raw === 'EN_REVISION' || raw === 'PROCESAR_IA') {
+    cls = 'badge-pending'; // amarillo / warning
+  } else if (raw.includes('RECHAZADA') || raw === 'VENCIDO' || raw.includes('ELIMINAR')) {
+    cls = 'badge-rejected'; // rojo / danger
+  } else if (raw.includes('EDITAR') || raw.includes('ACTUALIZAR') || raw.includes('IMPORTAR') || raw.includes('CREAR') || raw.includes('TOGGLE') || raw.includes('SUBIR')) {
+    cls = 'badge-review'; // azul / info
+  }
+  
+  return '<span class="badge ' + cls + '">' + escHtml(labelText) + '</span>';
+}
+</script>

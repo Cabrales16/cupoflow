@@ -1,0 +1,902 @@
+<script>
+/* Controls.html */
+/* ─────────────────────────────────────
+   Custom select (csel)
+───────────────────────────────────── */
+function initCsel(wrapId, opts) {
+  opts = opts || {};
+  const wrap = $(wrapId);
+  if (!wrap) return;
+
+  const trigger  = wrap.querySelector('.csel-trigger');
+  const dropdown = wrap.querySelector('.csel-dropdown');
+  const search   = wrap.querySelector('.csel-search');
+  const list     = wrap.querySelector('.csel-list');
+  const valEl    = wrap.querySelector('.csel-val');
+
+  if (!trigger || !dropdown || !list) return;
+
+  if (opts.items) {
+    list.innerHTML = opts.items.map(it =>
+      `<div class="csel-opt${it.val === (opts.selected || '') ? ' selected' : ''}"
+            data-val="${escHtml(String(it.val || ''))}" tabindex="0">
+         <span class="csel-opt-label">${escHtml(String(it.label || ''))}</span>
+         ${it.sub ? `<span class="csel-opt-sub">${escHtml(String(it.sub || ''))}</span>` : ''}
+       </div>`
+    ).join('');
+  }
+
+  if (opts.selected && opts.items && valEl) {
+    const found = opts.items.find(x => x.val === opts.selected);
+    if (found) valEl.textContent = found.label;
+  }
+
+  function setDir() {
+    const rect  = trigger.getBoundingClientRect();
+    const below = window.innerHeight - rect.bottom;
+    const above = rect.top;
+    wrap.classList.remove('open-up', 'open-down');
+    wrap.classList.add(below < 260 && above > below ? 'open-up' : 'open-down');
+  }
+
+  trigger.addEventListener('click', e => {
+    e.stopPropagation();
+    const isOpen = wrap.classList.contains('open');
+    document.querySelectorAll('.csel-wrap.open').forEach(w =>
+      w.classList.remove('open', 'open-up', 'open-down')
+    );
+    if (!isOpen) {
+      setDir();
+      wrap.classList.add('open');
+      if (search) {
+        search.value = '';
+        filterCsel(list, '');
+        search.focus();
+      }
+    }
+  });
+
+  trigger.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      const isOpen = wrap.classList.contains('open');
+      if (isOpen) {
+        wrap.classList.remove('open', 'open-up', 'open-down');
+      } else {
+        document.querySelectorAll('.csel-wrap.open').forEach(w =>
+          w.classList.remove('open', 'open-up', 'open-down')
+        );
+        setDir();
+        wrap.classList.add('open');
+        if (search) {
+          search.value = '';
+          filterCsel(list, '');
+          search.focus();
+        } else {
+          const first = list.querySelector('.csel-opt:not(.hidden)');
+          if (first) first.focus();
+        }
+      }
+    }
+    if (e.key === 'Escape') wrap.classList.remove('open', 'open-up', 'open-down');
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (!wrap.classList.contains('open')) {
+        setDir();
+        wrap.classList.add('open');
+      }
+      const first = list.querySelector('.csel-opt:not(.hidden)');
+      if (first) first.focus();
+    }
+  });
+
+  if (search) {
+    search.addEventListener('input', () => filterCsel(list, search.value));
+    search.addEventListener('click',  e => e.stopPropagation());
+    search.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        wrap.classList.remove('open', 'open-up', 'open-down');
+        trigger.focus();
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        const first = list.querySelector('.csel-opt:not(.hidden)');
+        if (first) first.focus();
+      }
+    });
+  }
+
+  list.addEventListener('keydown', e => {
+    const visibleOpts = Array.from(list.querySelectorAll('.csel-opt:not(.hidden)'));
+    const current = document.activeElement;
+    const idx = visibleOpts.indexOf(current);
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const next = visibleOpts[idx + 1];
+      if (next) next.focus();
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (idx === 0) { if (search) search.focus(); else trigger.focus(); }
+      else { const prev = visibleOpts[idx - 1]; if (prev) prev.focus(); }
+    }
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      if (current && current.classList.contains('csel-opt')) current.click();
+    }
+    if (e.key === 'Escape') {
+      wrap.classList.remove('open', 'open-up', 'open-down');
+      trigger.focus();
+    }
+  });
+
+  list.addEventListener('click', e => {
+    const opt = e.target.closest('.csel-opt');
+    if (!opt || opt.classList.contains('hidden')) return;
+    list.querySelectorAll('.csel-opt').forEach(o => o.classList.remove('selected'));
+    opt.classList.add('selected');
+    if (valEl) {
+      const lbl = opt.querySelector('.csel-opt-label');
+      valEl.textContent = lbl ? lbl.textContent.trim() : opt.dataset.val;
+    }
+    wrap.classList.remove('open', 'open-up', 'open-down');
+    trigger.classList.remove('input-error');
+    if (opts.onChange) opts.onChange(opt.dataset.val, opt);
+  });
+}
+
+function filterCsel(list, q) {
+  if (!list) return;
+  const ql = (q || '').toLowerCase().trim();
+  list.querySelectorAll('.csel-opt').forEach(o =>
+    o.classList.toggle('hidden', !!ql && !o.textContent.toLowerCase().includes(ql))
+  );
+}
+
+/**
+ * Selecciona programáticamente una opción dentro de un componente csel (dropdown personalizado)
+ * y dispara su callback onChange.
+ */
+function setCselOption(wrapId, targetVal) {
+  const wrap = typeof wrapId === 'string' ? $(wrapId) : wrapId;
+  if (!wrap) return;
+  const list = wrap.querySelector('.csel-list');
+  if (!list) return;
+
+  const targetStr = String(targetVal || '').toUpperCase().trim();
+  const opts = Array.from(list.querySelectorAll('.csel-opt'));
+  const targetOpt = opts.find(o => {
+    const v = String(o.dataset.val || '').toUpperCase().trim();
+    return v === targetStr || targetStr.includes(v) || v.includes(targetStr);
+  });
+
+  if (targetOpt) {
+    targetOpt.click();
+    const trigger = wrap.querySelector('.csel-trigger');
+    if (trigger) {
+      trigger.classList.remove('input-error');
+      trigger.classList.add('input-ia-autofilled');
+      setTimeout(() => trigger.classList.remove('input-ia-autofilled'), 3000);
+    }
+  }
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.csel-wrap')) {
+    document.querySelectorAll('.csel-wrap.open').forEach(w =>
+      w.classList.remove('open', 'open-up', 'open-down')
+    );
+  }
+});
+
+document.addEventListener('scroll', (e) => {
+  if (e.target && e.target.classList && e.target.classList.contains('csel-list')) return;
+  document.querySelectorAll('.csel-wrap.open').forEach(w =>
+    w.classList.remove('open', 'open-up', 'open-down')
+  );
+}, true);
+
+/* ─────────────────────────────────────
+   CHANGE #3 — Centro multi-select checkboxes
+───────────────────────────────────── */
+function initCentroCheckboxes(centros) {
+  const grid    = $('centroCheckGrid');
+  const searchEl = $('centroSearchInput');
+  const btnAll  = $('btnSelectAllCentros');
+  const btnNone = $('btnDeselectAllCentros');
+  if (!grid) return;
+
+  // ── Renderizar items ──────────────────────────────────
+  grid.innerHTML = centros.map(h => {
+    const razonSocial = h.razon || h.razon_social || '';
+    return `
+    <label class="centro-check-item" data-codigo="${escHtml(h.codigo)}" id="hci_${h.codigo}" tabindex="0">
+      <div class="centro-check-box">
+        <svg viewBox="0 0 12 12" fill="none">
+          <path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="centro-check-label">
+        <div class="centro-check-name">${escHtml(h.nombre)}</div>
+        ${razonSocial ? `<div class="centro-check-nit" title="${escHtml(razonSocial)}">${escHtml(razonSocial)}</div>` : ''}
+      </div>
+    </label>
+  `}).join('');
+
+  // ── Helpers ───────────────────────────────────────────
+  function syncHidden() {
+    const h = $('centro_codigo');
+    if (h) h.value = STATE.selectedCentros.map(x => x.codigo).join(',');
+  }
+
+  function syncUI() {
+    const count = STATE.selectedCentros.length;
+    // Botón X
+    if (btnNone) btnNone.style.display = count > 0 ? '' : 'none';
+    // Tags
+    const bar = $('centroTagsBar');
+    if (!bar) return;
+    if (!count) {
+      bar.innerHTML = '<span class="centros-placeholder">Ningún centro seleccionado</span>';
+      updateMontoFromCentros();
+      return;
+    }
+    bar.innerHTML = STATE.selectedCentros.map(h => `
+      <span class="centro-tag">
+        ${escHtml(h.nombre)}
+        <button type="button" class="centro-tag-remove" data-codigo="${escHtml(h.codigo)}" title="Quitar">✕</button>
+      </span>
+    `).join('');
+    // Listener en tags (delegado)
+    bar.querySelectorAll('.centro-tag-remove').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const codigo = btn.dataset.codigo;
+        STATE.selectedCentros = STATE.selectedCentros.filter(x => x.codigo !== codigo);
+        const item = document.querySelector(`#hci_${codigo}`);
+        if (item) item.classList.remove('checked');
+        syncHidden();
+        syncUI();
+      });
+    });
+    updateMontoFromCentros();
+  }
+
+  function updateMontoFromCentros() {
+    if (!STATE.catalogos || !STATE.catalogos.centros) return;
+
+    let totalMonto = 0;
+    STATE.selectedCentros.forEach(centroSeleccionado => {
+      // Buscar el centro en el catálogo usando el código
+      const centroCatalogo = STATE.catalogos.centros.find(h => h.codigo === centroSeleccionado.codigo);
+      if (centroCatalogo) {
+        // Obtener el monto_minimo del catálogo
+        const montoMinimo = Number(centroCatalogo.monto_minimo || centroCatalogo.monto || 0);
+        totalMonto += montoMinimo;
+      }
+    });
+
+    const montoEl = $('monto');
+    if (montoEl) {
+      montoEl.value = totalMonto > 0 ? fmt(totalMonto) : '';
+    }
+  }
+
+  function toggleCentroItem(centro, itemEl) {
+    const idx = STATE.selectedCentros.findIndex(h => h.codigo === centro.codigo);
+    if (idx >= 0) {
+      STATE.selectedCentros.splice(idx, 1);
+      if (itemEl) itemEl.classList.remove('checked');
+    } else {
+      STATE.selectedCentros.push(centro);
+      if (itemEl) itemEl.classList.add('checked');
+    }
+    syncHidden();
+    syncUI();
+  }
+
+  // ── Eventos grid ──────────────────────────────────────
+  grid.addEventListener('click', e => {
+    const item = e.target.closest('.centro-check-item');
+    if (!item) return;
+    const centro = centros.find(h => h.codigo === item.dataset.codigo);
+    if (centro) toggleCentroItem(centro, item);
+  });
+
+  grid.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const item = e.target.closest('.centro-check-item');
+    if (!item) return;
+    e.preventDefault();
+    const centro = centros.find(h => h.codigo === item.dataset.codigo);
+    if (centro) toggleCentroItem(centro, item);
+  });
+
+  // ── Búsqueda ──────────────────────────────────────────
+  if (searchEl) {
+    searchEl.addEventListener('input', () => {
+      const q = searchEl.value.toLowerCase().trim();
+      grid.querySelectorAll('.centro-check-item').forEach(item => {
+        const name = (item.querySelector('.centro-check-name') || {}).textContent || '';
+        const nit  = (item.querySelector('.centro-check-nit')  || {}).textContent || '';
+        item.classList.toggle('hidden', !!q && !name.toLowerCase().includes(q) && !nit.toLowerCase().includes(q));
+      });
+    });
+  }
+
+  // ── Seleccionar todos ─────────────────────────────────
+  if (btnAll) {
+    btnAll.addEventListener('click', () => {
+      centros.forEach(h => {
+        if (!STATE.selectedCentros.find(s => s.codigo === h.codigo))
+          STATE.selectedCentros.push(h);
+        const item = document.querySelector(`#hci_${h.codigo}`);
+        if (item) item.classList.add('checked');
+      });
+      syncHidden();
+      syncUI();
+    });
+  }
+
+  // ── Limpiar selección ─────────────────────────────────
+  if (btnNone) {
+    btnNone.addEventListener('click', () => {
+      STATE.selectedCentros = [];
+      grid.querySelectorAll('.centro-check-item').forEach(item => item.classList.remove('checked'));
+      syncHidden();
+      syncUI();
+    });
+  }
+
+  // ── Scroll fix ────────────────────────────────────────
+  grid.addEventListener('scroll', e => e.stopPropagation(), true);
+
+  syncUI();
+}
+
+// Exponer para compatibilidad con borrador
+function renderCentroTags() {
+  const btnNone = $('btnDeselectAllCentros');
+  if (btnNone) btnNone.style.display = STATE.selectedCentros.length > 0 ? '' : 'none';
+
+  const bar = $('centroTagsBar');
+  if (!bar) return;
+  if (!STATE.selectedCentros.length) {
+    bar.innerHTML = '<span class="centros-placeholder">Ningún centro seleccionado</span>';
+    return;
+  }
+  bar.innerHTML = STATE.selectedCentros.map(h => `
+    <span class="centro-tag">
+      ${escHtml(h.nombre)}
+      <button type="button" class="centro-tag-remove" data-codigo="${escHtml(h.codigo)}" title="Quitar">✕</button>
+    </span>
+  `).join('');
+  bar.querySelectorAll('.centro-tag-remove').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const codigo = btn.dataset.codigo;
+      STATE.selectedCentros = STATE.selectedCentros.filter(x => x.codigo !== codigo);
+      const item = document.querySelector(`#hci_${codigo}`);
+      if (item) item.classList.remove('checked');
+      const h = $('centro_codigo');
+      if (h) h.value = STATE.selectedCentros.map(x => x.codigo).join(',');
+      renderCentroTags();
+    });
+  });
+}
+
+function removeCentro(codigo) {
+  STATE.selectedCentros = STATE.selectedCentros.filter(x => x.codigo !== codigo);
+  const item = document.querySelector(`#hci_${codigo}`);
+  if (item) item.classList.remove('checked');
+  const h = $('centro_codigo');
+  if (h) h.value = STATE.selectedCentros.map(x => x.codigo).join(',');
+  renderCentroTags();
+}
+
+function toggleCentro(codigo, nombre, itemEl) {
+  const idx = STATE.selectedCentros.findIndex(h => h.codigo === codigo);
+  if (idx >= 0) {
+    STATE.selectedCentros.splice(idx, 1);
+    if (itemEl) itemEl.classList.remove('checked');
+  } else {
+    STATE.selectedCentros.push({ codigo, nombre });
+    if (itemEl) itemEl.classList.add('checked');
+  }
+  const h = $('centro_codigo');
+  if (h) h.value = STATE.selectedCentros.map(x => x.codigo).join(',');
+  renderCentroTags();
+}
+
+/* ─────────────────────────────────────
+   CHANGE #6 / #10 — Phone prefix (57)
+───────────────────────────────────── */
+function initPhonePrefix(prefixId, inputId, hiddenId) {
+  const prefix = $(prefixId);
+  const input  = $(inputId);
+  const hidden = $(hiddenId);
+  if (!prefix || !input) return;
+
+  function updateHidden() {
+    if (hidden) hidden.value = (prefix.value || '').trim() + ' ' + input.value.trim();
+  }
+
+  prefix.addEventListener('keydown', e => {
+    const text = prefix.textContent;
+    // Protect the minimum "(XX)" format — at least 4 chars
+    if ((e.key === 'Backspace' || e.key === 'Delete') && text.replace(/[^0-9]/g,'').length <= 2) {
+      e.preventDefault();
+    }
+  });
+
+  prefix.addEventListener('blur', () => {
+    let digits = (prefix.value || '').replace(/[^0-9]/g, '');
+    if (!digits) digits = '57';
+    prefix.value = '+' + digits;
+    updateHidden();
+  });
+
+  prefix.addEventListener('input', updateHidden);
+
+  input.addEventListener('input', () => {
+    input.value = input.value.replace(/[^\d\s\-]/g, '');
+    updateHidden();
+  });
+
+  updateHidden();
+}
+
+/* ─────────────────────────────────────
+   Monto — suggested amounts
+───────────────────────────────────── */
+function initMonto() {
+  const field    = $('montoField');
+  const input    = $('monto');
+  const dropdown = $('montoDropdown');
+
+  if (!field || !input || !dropdown) return;
+
+  function formatMontoValue(value) {
+    const raw = String(value || '').replace(/\D/g, '');
+    if (!raw) return '';
+    return parseInt(raw, 10).toLocaleString('es-CO');
+  }
+
+  function hasValue() {
+    return !!input.value.replace(/\D/g, '');
+  }
+
+  function openMontoDropdown() {
+    if (hasValue()) return;
+    dropdown.classList.remove('hidden');
+    input.setAttribute('aria-expanded', 'true');
+  }
+
+  function closeMontoDropdown() {
+    dropdown.classList.add('hidden');
+    input.setAttribute('aria-expanded', 'false');
+  }
+
+  input.addEventListener('focus', () => {
+    if (!hasValue()) openMontoDropdown();
+  });
+
+  input.addEventListener('click', () => {
+    if (!hasValue()) openMontoDropdown();
+  });
+
+  input.addEventListener('input', () => {
+    const formatted = formatMontoValue(input.value);
+    input.value = formatted;
+
+    if (formatted) closeMontoDropdown();
+    else openMontoDropdown();
+  });
+
+  dropdown.querySelectorAll('.monto-option').forEach(btn => {
+    btn.addEventListener('click', () => {
+      input.value = formatMontoValue(btn.dataset.val || '');
+      closeMontoDropdown();
+      input.focus();
+      input.dispatchEvent(new Event('input'));
+    });
+  });
+
+  document.addEventListener('click', e => {
+    if (!field.contains(e.target)) closeMontoDropdown();
+  });
+
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeMontoDropdown();
+  });
+}
+
+function setMonto(val) {
+  const input = $('monto');
+  if (!input) return;
+  const num = parseInt(String(val).replace(/\D/g, ''), 10);
+  if (!isNaN(num)) {
+    input.value = num.toLocaleString('es-CO');
+    input.dispatchEvent(new Event('input'));
+  }
+}
+
+/* ─────────────────────────────────────
+   CHANGE #16 — Dynamic centro references
+───────────────────────────────────── */
+let _refCount = 3;
+
+function initRefs() {
+  // Comentado temporalmente — referencias comerciales en pausa
+  /*
+  document.querySelectorAll('input[name="refs_centro"]').forEach(r => {
+    r.addEventListener('change', () => {
+      const wrap = $('refsWrap');
+      if (wrap) wrap.classList.toggle('hidden', r.value === 'NO');
+    });
+  });
+  const btnAdd = $('btnAddRef');
+  if (btnAdd) btnAdd.addEventListener('click', addRefRow);
+  */
+}
+
+function addRefRow() {
+  _refCount++;
+  const container = $('refsContainer');
+  if (!container) return;
+  const row = document.createElement('div');
+  row.className = 'refs-row';
+  row.id = 'refRow_' + _refCount;
+  row.innerHTML = `
+    <span class="ref-num">${_refCount}.</span>
+    <div class="input-wrap compact"><input id="ref_centro_${_refCount}" placeholder="Nombre del centro"></div>
+    <div class="input-wrap compact"><input id="ref_ciudad_${_refCount}" placeholder="Ciudad"></div>
+    <button type="button" class="btn-ref-remove" onclick="removeRefRow(${_refCount})" title="Eliminar">
+      <svg viewBox="0 0 14 14" fill="none"><path d="M2 2l10 10M12 2 2 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>`;
+  container.appendChild(row);
+}
+
+function removeRefRow(n) {
+  const row = $('refRow_' + n);
+  if (row) row.remove();
+}
+
+function getRefsData() {
+  const refs = [];
+  const container = $('refsContainer');
+  if (!container) return refs;
+  container.querySelectorAll('.refs-row').forEach(row => {
+    const centroInput  = row.querySelector('input[id^="ref_centro_"]');
+    const ciudadInput = row.querySelector('input[id^="ref_ciudad_"]');
+    if (centroInput && centroInput.value.trim()) {
+      refs.push({ centro: centroInput.value.trim(), ciudad: ciudadInput ? ciudadInput.value.trim() : '' });
+    }
+  });
+  return refs;
+}
+
+/* ─────────────────────────────────────
+   HTML escaping
+───────────────────────────────────── */
+function escHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/* ─────────────────────────────────────
+   Navegación directa por stepper (punto 7)
+───────────────────────────────────── */
+function initStepperNav() {
+  for (let i = 1; i <= 5; i++) {
+    const pill = $('pill' + i);
+    if (!pill) continue;
+    pill.addEventListener('click', () => {
+      if (i > STATE.maxStep) return;
+      if (i > STATE.step) {
+        if (!validateStep(STATE.step)) return;
+      }
+      goTo(i);
+    });
+  }
+}
+
+/* ─────────────────────────────────────
+   Validaciones de input (punto 10)
+───────────────────────────────────── */
+function initInputValidations() {
+
+  // ── Regex por categoría ──────────────────────────────
+  const RX_TEXTO_LIBRE  = /[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ0-9\s.,\-()#&@]/g;
+  const RX_SOLO_NUM     = /[^0-9]/g;
+  const RX_NIT          = /[^0-9]/g;
+  const RX_EMAIL_CHAR   = /[^a-zA-Z0-9@._+\-]/g;
+
+  // ── Aplicadores ──────────────────────────────────────
+  function blockRealTime(el, rx) {
+      if (!el) return;
+      el.addEventListener('input', () => {
+        const prev  = el.value;
+        const next  = prev.replace(rx, '');
+        if (next !== prev) {
+          const start = el.selectionStart;
+          el.value = next;
+          if (el.type !== 'email') {
+            try {
+              el.setSelectionRange(
+                Math.max(0, start - (prev.length - next.length)),
+                Math.max(0, start - (prev.length - next.length))
+              );
+            } catch(e) {}
+          }
+        }
+        el.classList.remove('input-error');
+      });
+    }
+
+  function validateOnBlur(el, rx, msg) {
+    if (!el) return;
+    el.addEventListener('blur', () => {
+      const val = el.value.trim();
+      if (!val) return; // vacío lo maneja validateStep
+      if (rx.test(val)) {
+        el.classList.add('input-error');
+        showFieldError(el, msg);
+      } else {
+        el.classList.remove('input-error');
+        clearFieldError(el);
+      }
+      // resetear lastIndex si es global
+      rx.lastIndex = 0;
+    });
+  }
+
+  function collapseSpaces(el) {
+    if (!el) return;
+    el.addEventListener('blur', () => {
+      el.value = el.value.replace(/\s+/g, ' ').trim();
+    });
+  }
+
+  function emailValidate(el) {
+    if (!el) return;
+    // bloqueo tiempo real
+    blockRealTime(el, RX_EMAIL_CHAR);
+    // validación blur
+    el.addEventListener('blur', () => {
+      const val = el.value.trim();
+      if (!val) return;
+      const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val);
+      if (!valid) {
+        el.classList.add('input-error');
+        showFieldError(el, 'Ingresa un correo válido (ej: nombre@example.com)');
+      } else {
+        el.classList.remove('input-error');
+        clearFieldError(el);
+      }
+    });
+  }
+
+  // ── Campos texto libre ────────────────────────────────
+  const textLibreIds = [
+    'razon_social', 'nombre_comercial', 'direccion', 'ciudad', 'departamento',
+    'nombre_rep_legal', 'cargo_rep', 'ejecutivo_cuenta',
+    'cont_tes_nombre', 'cont_cp_nombre', 'cont_df_nombre', 'cont_com_nombre'
+  ];
+  textLibreIds.forEach(id => {
+    const el = $(id);
+    if (!el) return;
+    blockRealTime(el, RX_TEXTO_LIBRE);
+    validateOnBlur(el, /[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ0-9\s.,\-()#&@]/,
+      'El campo contiene caracteres no permitidos.');
+    collapseSpaces(el); // ← agregar esta línea
+  });
+
+  // ── NIT ───────────────────────────────────────────────
+  const nitEl = $('nit');
+  if (nitEl) {
+    blockRealTime(nitEl, RX_NIT);
+    validateOnBlur(nitEl, /[^0-9]/, 'El NIT solo admite números.');
+  }
+
+  // ── Solo numéricos (cod_postal) ───────────────────────
+  const codPostalEl = $('cod_postal');
+  if (codPostalEl) {
+    blockRealTime(codPostalEl, RX_SOLO_NUM);
+    validateOnBlur(codPostalEl, /[^0-9]/, 'Este campo solo admite números.');
+  }
+
+  // ── Identificación representante (dinámico si es pasaporte) ──
+  const numIdRepEl = $('num_id_rep');
+  if (numIdRepEl) {
+    const tipoIdRepEl = $('tipo_id_rep');
+    
+    // Configurar inputMode inicial según el tipo de documento seleccionado
+    const isAlphanumeric = tipoIdRepEl && ['PASAPORT', 'CE', 'NIT'].includes(tipoIdRepEl.value);
+    numIdRepEl.inputMode = isAlphanumeric ? 'text' : 'numeric';
+
+    numIdRepEl.addEventListener('input', () => {
+      const isAlphanumeric = tipoIdRepEl && ['PASAPORT', 'CE', 'NIT'].includes(tipoIdRepEl.value);
+      const rx = isAlphanumeric ? /[^a-zA-Z0-9]/g : /[^0-9]/g;
+      
+      const prev = numIdRepEl.value;
+      const next = prev.replace(rx, '');
+      if (next !== prev) {
+        const start = numIdRepEl.selectionStart;
+        numIdRepEl.value = next;
+        try {
+          numIdRepEl.setSelectionRange(
+            Math.max(0, start - (prev.length - next.length)),
+            Math.max(0, start - (prev.length - next.length))
+          );
+        } catch(e) {}
+      }
+      numIdRepEl.classList.remove('input-error');
+    });
+
+    numIdRepEl.addEventListener('blur', () => {
+      const val = numIdRepEl.value.trim();
+      if (!val) return;
+      
+      const isAlphanumeric = tipoIdRepEl && ['PASAPORT', 'CE', 'NIT'].includes(tipoIdRepEl.value);
+      if (isAlphanumeric) {
+        if (/[^a-zA-Z0-9]/.test(val)) {
+          numIdRepEl.classList.add('input-error');
+          showFieldError(numIdRepEl, 'Este documento admite letras y números.');
+        } else {
+          numIdRepEl.classList.remove('input-error');
+          clearFieldError(numIdRepEl);
+        }
+      } else {
+        if (/[^0-9]/.test(val)) {
+          numIdRepEl.classList.add('input-error');
+          showFieldError(numIdRepEl, 'Este campo solo admite números.');
+        } else {
+          numIdRepEl.classList.remove('input-error');
+          clearFieldError(numIdRepEl);
+        }
+      }
+    });
+  }
+
+  // ── Correos ───────────────────────────────────────────
+  [
+    'correo_rep', 'fact_email', 'fact_email_cc',
+    'cont_tes_email', 'cont_cp_email', 'cont_df_email', 'cont_com_email'
+  ].forEach(id => emailValidate($(id)));
+
+  // ── Monto: máx. 12 dígitos numéricos ─────────────────
+  const montoEl = $('monto');
+  if (montoEl) {
+    montoEl.addEventListener('input', () => {
+      const digits = montoEl.value.replace(/\D/g, '');
+      if (digits.length > 12) {
+        montoEl.value = parseInt(digits.slice(0, 12), 10).toLocaleString('es-CO');
+      }
+    });
+  }
+  ['tel_rep_num', 'cont_tes_tel_num', 'cont_cp_tel_num',
+   'cont_df_tel_num', 'cont_com_tel_num'].forEach(id => {
+    blockRealTime($(id), RX_SOLO_NUM);
+  });
+
+  // ── Maxlength por campo ───────────────────────────────
+  const maxLengths = {
+    'razon_social':     100,
+    'nombre_comercial': 100,
+    'direccion':        100,
+    'ciudad':            50,
+    'departamento':      50,
+    'cargo_rep':         50,
+    'ejecutivo_cuenta':  50,
+    'nombre_rep_legal':  80,
+    'cont_tes_nombre':   50,
+    'cont_cp_nombre':    50,
+    'cont_df_nombre':    50,
+    'cont_com_nombre':   50,
+    'nit':               15,  // 10 dígitos + puntos + guion + dígito verificación
+    'num_id_rep':        15,
+    'cod_postal':          6,
+    'tel_rep_num':        15,
+    'cont_tes_tel_num':   15,
+    'cont_cp_tel_num':    15,
+    'cont_df_tel_num':    15,
+    'cont_com_tel_num':   15,
+    'correo_rep':        100,
+    'fact_email':        100,
+    'fact_email_cc':     100,
+    'cont_tes_email':    100,
+    'cont_cp_email':     100,
+    'cont_df_email':     100,
+    'cont_com_email':    100,
+    'fact_fecha_corte':  200,
+    'fact_docs_req':     200
+  };
+  Object.entries(maxLengths).forEach(([id, max]) => {
+    const el = $(id);
+    if (el) el.setAttribute('maxlength', String(max));
+  });
+  // ── Observaciones: contador de caracteres ──────────────
+  const obsEl      = $('observaciones');
+  const obsCounter = $('obs-counter');
+  if (obsEl && obsCounter) {
+    obsEl.addEventListener('input', () => {
+      obsCounter.textContent = obsEl.value.length + ' / 1000';
+    });
+  }
+}
+
+function showFieldError(el, msg) {
+  clearFieldError(el);
+  const tooltip = document.createElement('div');
+  tooltip.className = 'field-tooltip-error';
+  tooltip.textContent = msg;
+  el.parentElement.style.position = 'relative';
+  el.parentElement.appendChild(tooltip);
+}
+
+function clearFieldError(el) {
+  const prev = el.parentElement.querySelector('.field-tooltip-error');
+  if (prev) prev.remove();
+}
+
+function toggleCC() {
+  const wrap = $('factEmailCCWrap');
+  const btn  = $('btnAddCC');
+  if (!wrap) return;
+  const visible = wrap.style.display !== 'none';
+  wrap.style.display = visible ? 'none' : 'block';
+  if (btn) btn.textContent = visible ? '+ Agregar correo con copia (CC)' : '− Quitar correo CC';
+  if (visible && $('fact_email_cc')) $('fact_email_cc').value = '';
+}
+
+function initEjecutivoCsel(comerciales) {
+  const wrap  = $('ejecutivo_wrap');
+  const input = $('ejecutivo_cuenta');
+  if (!wrap || !input || !comerciales.length) return;
+
+  // Limpiar si ya existe
+  const existing = $('csel_ejecutivo');
+  if (existing) existing.remove();
+
+  input.type   = 'hidden';
+  input.style.display = '';
+  wrap.insertAdjacentHTML('beforeend', `
+    <div class="csel-wrap" id="csel_ejecutivo">
+      <div class="csel-trigger" tabindex="0" id="csel_ejecutivo_trigger">
+        <span class="csel-ico">${SVG.user}</span>
+        <div class="csel-val-stack">
+          <span class="csel-val" id="csel_ejecutivo_val">Selecciona un ejecutivo comercial…</span>
+          <span class="csel-val-sub" id="csel_ejecutivo_val_sub"></span>
+        </div>
+        <svg class="csel-arrow" viewBox="0 0 20 20"><path d="M5 8l5 5 5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </div>
+      <div class="csel-dropdown" id="csel_ejecutivo_drop">
+        <div class="csel-search-wrap">
+          <input class="csel-search" id="csel_ejecutivo_search" placeholder="Buscar por nombre o correo…" autocomplete="off">
+        </div>
+        <div class="csel-list" id="csel_ejecutivo_list"></div>
+      </div>
+    </div>
+  `);
+
+  initCsel('csel_ejecutivo', {
+    items: comerciales.map(e => ({ 
+      val: e.correo, 
+      label: `${e.nombre} ${e.apellido}`.trim(), 
+      sub: e.correo 
+    })),
+    onChange: function(val, opt) {
+      const input = document.getElementById('ejecutivo_cuenta');
+      if (input) {
+        input.value = val;
+        // ejecutivo_cuenta actualizado: input.value
+      }
+      const subEl = document.getElementById('csel_ejecutivo_val_sub');
+      if (subEl && opt) {
+        const subTxt = opt.querySelector('.csel-opt-sub');
+        subEl.textContent = subTxt ? subTxt.textContent : '';
+      }
+    }
+  });
+}
+</script>

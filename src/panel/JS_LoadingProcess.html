@@ -1,0 +1,201 @@
+<script>
+/* ─────────────────────────────────────────────────────────────────────────
+   JS_LoadingProcess.html — Controlador del Modal de Carga de Procesos Paso a Paso
+   CupoFlow · Panel de Control y Administración - Solicitud de Créditos
+   ───────────────────────────────────────────────────────────────────────── */
+
+const PROCESS_LOADER = {
+  activeSteps: [],
+  currentActiveIdx: 0,
+  simInterval: null,
+  successCallback: null,
+
+  // SVGs para los estados
+  icons: {
+    spinner: '<div class="proc-step-spinner"></div>',
+    dot: '<div class="proc-step-dot"></div>',
+    check: `
+      <svg class="proc-step-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="20 6 9 17 4 12"></polyline>
+      </svg>`,
+    error: `
+      <svg class="proc-step-error" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="18" y1="6" x2="6" y2="18"></line>
+        <line x1="6" y1="6" x2="18" y2="18"></line>
+      </svg>`
+  },
+
+  /**
+   * Muestra el modal de carga con una lista de pasos indicados.
+   * @param {string} title - Título del proceso (ej. "Procesando Aprobación")
+   * @param {string[]} steps - Array de strings con los pasos del proceso.
+   * @param {boolean} simulate - Si es true, inicia simulación de avance de pasos.
+   */
+  show(title, steps, simulate = true) {
+    this.activeSteps = steps;
+    this.currentActiveIdx = 0;
+    this.successCallback = null;
+    if (this.simInterval) clearInterval(this.simInterval);
+
+    // Configurar Título y subtítulo inicial
+    setText('procLoadingTitle', title);
+    setText('procLoadingDesc', 'Por favor, no cierres esta ventana. El servidor está procesando tu solicitud.');
+    hide('procLoadingCloseBtn');
+
+    // Renderizar la estructura del Spinner
+    const spinnerWrap = document.getElementById('procLoadingSpinnerWrap');
+    if (spinnerWrap) {
+      spinnerWrap.innerHTML = `
+        <svg class="proc-loading-spinner-svg" viewBox="0 0 50 50">
+          <circle class="proc-loading-spinner-circle" cx="25" cy="25" r="20" fill="none" stroke-width="4"></circle>
+        </svg>
+      `;
+    }
+
+    // Renderizar los pasos en la UI
+    const container = document.getElementById('procLoadingStepsContainer');
+    if (container) {
+      container.innerHTML = '';
+      steps.forEach((step, idx) => {
+        const stepEl = document.createElement('div');
+        stepEl.className = 'proc-loading-step';
+        stepEl.id = `procStep-${idx}`;
+        
+        const iconEl = document.createElement('div');
+        iconEl.className = 'proc-loading-step-icon';
+        iconEl.id = `procStepIco-${idx}`;
+        iconEl.innerHTML = idx === 0 ? this.icons.spinner : this.icons.dot;
+
+        const textEl = document.createElement('span');
+        textEl.textContent = step;
+
+        stepEl.appendChild(iconEl);
+        stepEl.appendChild(textEl);
+        container.appendChild(stepEl);
+
+        if (idx === 0) {
+          stepEl.classList.add('active');
+        }
+      });
+    }
+
+    // Mostrar el modal
+    rmCls('modalLoadingProcess', 'hidden');
+
+    // Iniciar simulación de progreso
+    if (simulate && steps.length > 1) {
+      this.startSimulation();
+    }
+  },
+
+  /** Actualiza el estado visual de un paso específico. */
+  updateStep(idx, status) {
+    const el = document.getElementById(`procStep-${idx}`);
+    const ico = document.getElementById(`procStepIco-${idx}`);
+    if (!el || !ico) return;
+
+    el.classList.remove('active', 'success', 'error');
+    
+    if (status === 'active') {
+      el.classList.add('active');
+      ico.innerHTML = this.icons.spinner;
+      this.currentActiveIdx = idx;
+    } else if (status === 'success') {
+      el.classList.add('success');
+      ico.innerHTML = this.icons.check;
+    } else if (status === 'error') {
+      el.classList.add('error');
+      ico.innerHTML = this.icons.error;
+    } else {
+      ico.innerHTML = this.icons.dot;
+    }
+  },
+
+  /** Simula el avance en el tiempo de los pasos para dar feedback fluido. */
+  startSimulation() {
+    // Estimación: Paso 0 toma 1s, Paso 1 (PDF) toma 5s, Paso 2 (Mail) toma 4s, Paso 3 toma 2s...
+    // Avanzamos progresivamente cada cierto tiempo
+    const times = [1500, 4500, 3500, 2000, 2000]; // Duraciones por paso en ms
+    
+    const advance = () => {
+      const current = this.currentActiveIdx;
+      if (current < this.activeSteps.length - 1) {
+        this.updateStep(current, 'success');
+        this.updateStep(current + 1, 'active');
+        
+        // Configurar la siguiente llamada
+        const nextTime = times[current + 1] || 2500;
+        this.simInterval = setTimeout(advance, nextTime);
+      }
+    };
+
+    const initialTime = times[0] || 1500;
+    this.simInterval = setTimeout(advance, initialTime);
+  },
+
+  /** Finaliza exitosamente todo el cargador, marcando todo en éxito y llamando al callback. */
+  complete(callback) {
+    if (this.simInterval) clearTimeout(this.simInterval);
+
+    // Marcar todos los pasos como completados
+    for (let i = 0; i < this.activeSteps.length; i++) {
+      this.updateStep(i, 'success');
+    }
+
+    setText('procLoadingDesc', '¡Proceso finalizado correctamente!');
+
+    // Mostrar checkmark animada gigante
+    const spinnerWrap = document.getElementById('procLoadingSpinnerWrap');
+    if (spinnerWrap) {
+      spinnerWrap.innerHTML = `
+        <svg class="proc-success-checkmark" viewBox="0 0 52 52">
+          <circle class="proc-success-checkmark-circle" cx="26" cy="26" r="25" fill="none"></circle>
+          <path class="proc-success-checkmark-check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"></path>
+        </svg>
+      `;
+    }
+
+    // Esperar 1.5s antes de ocultar y llamar callback
+    setTimeout(() => {
+      this.hide();
+      if (typeof callback === 'function') {
+        callback();
+      }
+    }, 1500);
+  },
+
+  /** Muestra error en el paso actual, detiene todo y ofrece un botón de salida. */
+  fail(errorMessage) {
+    if (this.simInterval) clearTimeout(this.simInterval);
+
+    // El paso actual y los siguientes quedan marcados con error / pendientes
+    const current = this.currentActiveIdx;
+    this.updateStep(current, 'error');
+    
+    // Cambiar descripción al error detallado
+    setText('procLoadingTitle', 'Error en el proceso');
+    setHtml('procLoadingDesc', `<span style="color:var(--danger,#dc3545);font-weight:600;">${errorMessage}</span>`);
+
+    // Mostrar cruz de error gigante animada
+    const spinnerWrap = document.getElementById('procLoadingSpinnerWrap');
+    if (spinnerWrap) {
+      spinnerWrap.innerHTML = `
+        <svg class="proc-error-cross" viewBox="0 0 52 52">
+          <circle class="proc-error-cross-circle" cx="26" cy="26" r="25" fill="none"></circle>
+          <path class="proc-error-cross-line1" fill="none" d="M16 16 L36 36"></path>
+          <path class="proc-error-cross-line2" fill="none" d="M36 16 L16 36"></path>
+        </svg>
+      `;
+    }
+
+    // Mostrar el botón de cerrar para permitir al usuario volver al estado anterior
+    show('procLoadingCloseBtn');
+  },
+
+  /** Oculta el modal de carga. */
+  hide() {
+    if (this.simInterval) clearTimeout(this.simInterval);
+    addCls('modalLoadingProcess', 'hidden');
+  }
+};
+</script>

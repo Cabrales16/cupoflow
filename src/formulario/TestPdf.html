@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Test PDF — CupoFlow</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Arial, sans-serif;
+      background: #eef5f4;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .card {
+      background: #fff;
+      border-radius: 14px;
+      padding: 44px 40px;
+      text-align: center;
+      box-shadow: 0 4px 28px rgba(0,0,0,.10);
+      max-width: 420px;
+      width: 92%;
+    }
+    .logo {
+      font-size: 30px;
+      font-weight: 400;
+      color: #3c796c;
+      letter-spacing: .5px;
+      line-height: 1.1;
+      font-family: 'Century Gothic', 'Trebuchet MS', Arial, sans-serif;
+    }
+    .logo span { color: #d08b43; }
+    .logo sub {
+      display: block;
+      font-size: 9px;
+      letter-spacing: 2px;
+      color: #7eb1a4;
+      margin-top: 2px;
+      font-family: Arial, sans-serif;
+    }
+    h2 { color: #0e362f; margin: 18px 0 8px; font-size: 18px; }
+    p  { color: #666; font-size: 13px; line-height: 1.55; margin-bottom: 28px; }
+    button {
+      background: #3c796c;
+      color: #fff;
+      border: none;
+      padding: 14px 0;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: bold;
+      cursor: pointer;
+      width: 100%;
+      transition: background .2s;
+    }
+    button:hover:not(:disabled) { background: #2b6458; }
+    button:disabled { background: #93b6ad; cursor: default; }
+    #status {
+      margin-top: 18px;
+      font-size: 13px;
+      color: #555;
+      min-height: 22px;
+      line-height: 1.4;
+    }
+    .ok  { color: #27ae60; font-weight: bold; }
+    .err { color: #e74c3c; font-weight: bold; }
+    .bar-wrap {
+      margin-top: 14px;
+      background: #eef5f4;
+      border-radius: 99px;
+      height: 6px;
+      overflow: hidden;
+      display: none;
+    }
+    .bar {
+      height: 100%;
+      background: linear-gradient(90deg, #3c796c, #d08b43);
+      width: 0%;
+      transition: width .4s ease;
+      border-radius: 99px;
+    }
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">demo<span>H</span>otel<sub>HOSPITALITY MANAGEMENT GROUP</sub></div>
+  <h2>Test PDF Formulario</h2>
+  <p>
+    Genera el formulario <strong>OX-F-GFI-18</strong> con datos de prueba
+    usando <strong>html2canvas</strong> (igual que en producción) y lo envía a
+    <strong>soporte-ti@example.com</strong>.
+  </p>
+  <button id="btn" onclick="runTest()">Generar y enviar PDF de prueba</button>
+  <div class="bar-wrap" id="barWrap"><div class="bar" id="bar"></div></div>
+  <div id="status"></div>
+</div>
+
+<script>
+/* ── Mock data ─────────────────────────────────────────────────────────── */
+const MOCK_CENTROS = [
+    { codigo:'HDEMO01', nombre:'Centro Demo Norte', razon:'CENTRO DEMO NORTE S.A.S', nit:'900.000.001-1' },
+    { codigo:'HDEMO02', nombre:'Centro Demo Central', razon:'DISTRIBUIDORA DEMO S.A.S.', nit:'900.000.002-2' },
+    { codigo:'HDEMO03', nombre:'Centro Demo Sur', razon:'CENTRO DEMO SUR S.A.S', nit:'900.000.003-3' }
+];
+
+const MOCK_DATA = {
+  tipo_solicitud:         'NUEVA',
+  razon_social:           'EMPRESA DE PRUEBA S.A.S',
+  nombre_comercial:       'Empresa Prueba',
+  identificacion:         '900.000.000-0',
+  direccion:              'Calle 100 # 15-25 Oficina 801',
+  ciudad:                 'Bogotá D.C.',
+  departamento:           'Cundinamarca',
+  cod_postal:             '110111',
+  nombre_rep_legal:       'Juan Carlos Pérez Gómez',
+  tipo_id_rep:            'Cédula de ciudadanía',
+  num_id_rep:             '12.345.678',
+  cargo_rep:              'Gerente General',
+  tel_rep:                '601 345-6789',
+  correo_rep:             'representante@example.com',
+  responsabilidad_fiscal: '48,0-15',
+  monto:                  '5000000',
+  moneda:                 'COP',
+  ejecutivo_cuenta:       'Ana Martínez',
+  fecha_diligenciamiento: '2026-06-11',
+  fact_fecha_corte:       'Último día del mes',
+  fact_inscripcion:       'SI',
+  fact_docs_req:          'Factura original con requisitos DIAN',
+  fact_email:             'cuentas@example.com',
+  fact_email_cc:          '',
+  contactos: [
+    { area:'Tesorería',           nombre:'María López',   tel:'300 000 0001', email:'tesoreria@example.com'    },
+    { area:'Cuentas por pagar',   nombre:'Carlos Ruiz',   tel:'300 000 0002', email:'cuentaspagar@example.com' },
+    { area:'Director Financiero', nombre:'Andrés Torres', tel:'315 456 7890', email:'director@example.com'    },
+    { area:'Comercial',           nombre:'Sara Jiménez',  tel:'300 000 0003', email:'comercial@example.com'   }
+  ],
+  codigo_solicitud: 'TEST-2026-001'
+};
+
+/* ── Helpers (mismos que Submit.html) ──────────────────────────────────── */
+function _escHtml_(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function _buildFormularioPdfHtml_(data, centros, logoB64) {
+  const logoHtml = logoB64
+    ? '<img src="data:image/png;base64,' + logoB64 + '" style="height:36px;display:block;">'
+    : ('<span style="font-size:22pt;font-weight:400;color:#ffffff;letter-spacing:0.5px;' +
+       'font-family:Century Gothic,Trebuchet MS,Arial,sans-serif;line-height:1.1;">' +
+       'demo<span style="color:#d08b43;">H</span>otel</span><br>' +
+       '<span style="font-size:6pt;font-weight:400;color:#9edbca;letter-spacing:2px;font-family:Arial,sans-serif;">' +
+       'HOSPITALITY MANAGEMENT GROUP</span>');
+
+  const taglineHtml =
+    '<span style="font-size:9pt;font-style:italic;color:#d08b43;font-family:Calibri,Arial,sans-serif;letter-spacing:0.2px;line-height:1.4;">' +
+    'Destinos únicos,<br>experiencias inolvidables</span>';
+
+  const headerHtml =
+    '<div style="background:#3c796c;border-bottom:5px solid #d08b43;width:100%;">' +
+    '<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#3c796c;">' +
+    '<tr>' +
+    '<td style="width:220px;padding:16px 18px 5px 30px;vertical-align:middle;border-right:1px solid #598d82;background:#3c796c;">' + logoHtml + '</td>' +
+    '<td style="padding:16px 30px 5px 18px;text-align:right;vertical-align:top;background:#3c796c;">' +
+    '<span style="font-size:9.5pt;font-weight:bold;color:#ffffff;font-family:Arial,sans-serif;">SOLICITUD DE CRÉDITO A COMPAÑÍAS</span><br>' +
+    '<span style="font-size:7.5pt;color:#afe1d5;font-family:Arial,sans-serif;">OX-F-GFI-18 &nbsp;|&nbsp; Rev.21 &nbsp;|&nbsp; Gestión Financiera</span>' +
+    '</td></tr>' +
+    '<tr>' +
+    '<td style="width:220px;padding:0 18px 14px 30px;font-size:7.5pt;color:#afe1d5;border-right:1px solid #598d82;background:#3c796c;font-family:Arial,sans-serif;">www.example.com<  function buildFooterHtml(pageNum, totalPages) {
+    return '<div style="background:#3c796c;border-top:5px solid #d08b43;position:absolute;bottom:0;left:0;right:0;">' +
+      '<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#3c796c;">' +
+      '<tr>' +
+      '<td style="width:220px;padding:8px 18px 3px 30px;vertical-align:middle;border-right:1px solid #598d82;background:#3c796c;">' + taglineHtml + '</td>' +
+      '<td style="padding:10px 30px 3px 18px;text-align:right;vertical-align:top;background:#3c796c;">' +
+      '<span style="font-size:9pt;font-weight:bold;color:#ffffff;font-family:Arial,sans-serif;">Area de crédito y cartera</span>' +
+      (pageNum ? '<span style="font-size:7.5pt;color:#afe1d5;font-family:Arial,sans-serif;margin-left:14px;">Pág. ' + pageNum + ' de ' + totalPages + '</span>' : '') +
+      '</td></tr>' +
+      '<tr>' +
+      '<td style="width:220px;padding:0 18px 10px 30px;font-size:7.5pt;color:#afe1d5;border-right:1px solid #598d82;background:#3c796c;font-family:Arial,sans-serif;">www.example.com</td>' +
+      '<td style="padding:0 30px 10px 18px;font-size:7.5pt;color:#afe1d5;text-align:right;background:#3c796c;font-family:Arial,sans-serif;">CALLE 00 # 00-00, Ciudad, País</td>' +
+      '</tr></table></div>';
+  }
+
+  function sHdr(t) {
+    return '<div style="color:#194b3f;font-weight:bold;font-size:8.5pt;padding:4px 0 4px 10px;' +
+      'margin:10px 0 3px;border-left:4px solid #3c796c;letter-spacing:0.3px;font-family:Calibri,Arial,sans-serif;">' + t + '</div>';
+  }
+  function tdPair(lbl, val) {
+    return '<td style="border:1px solid #d8ebe7;padding:4px 8px;font-size:8.5pt;color:#194b3f;font-weight:bold;' +
+      'width:22%;background:#e8f0ee;font-family:Calibri,Arial,sans-serif;">' + lbl + '</td>' +
+      '<td style="border:1px solid #d8ebe7;padding:4px 8px;font-size:8.5pt;color:#1a1a1a;width:28%;font-family:Calibri,Arial,sans-serif;">' +
+      _escHtml_(val) + '</td>';
+  }
+
+  const thStyle = 'background:#3c796c;color:#fff;font-size:8pt;padding:6px 8px;border:none;text-align:left;font-family:Calibri,Arial,sans-serif;';
+  const tdS     = 'border:1px solid #d8ebe7;padding:3.5px 7px;font-size:8pt;font-family:Calibri,Arial,sans-serif;';
+  const evenRow = 'background:#f5faf9;';
+
+  const tipoMap = { NUEVA:'Primera Vez', AMPLIACION:'Aumento Monto', RENOVACION:'Renovación', HOMOLOGACION:'Homologación' };
+  const fiscalMap = [
+    ['0-13','Gran contribuyente'],['0-15','Autorretenedor'],
+    ['0-23','Agente retención IVA'],['0-47','Régimen simple de tributación'],
+    ['48','Impuesto sobre las ventas IVA'],['R-99-PN','No responsable']
+  ];
+  const montoNum  = parseFloat((data.monto||'').toString().replace(/\./g,'').replace(',','.')) || 0;
+  const montoFmt  = montoNum ? (data.moneda||'COP') + ' ' + montoNum.toLocaleString('es-CO') : '—';
+  const tipoLabel = tipoMap[data.tipo_solicitud] || data.tipo_solicitud || '—';
+  const fiscalSel = (data.responsabilidad_fiscal||'').split(',').map(s=>s.trim()).filter(Boolean);
+
+  const fiscalRows = fiscalMap.map(([cod,nom],i) =>
+    '<tr' + (i%2===1 ? ' style="'+evenRow+'"' : '') + '>' +
+    '<td style="' + tdS + 'width:60px;">' + cod + '</td>' +
+    '<td style="' + tdS + '">' + nom + '</td>' +
+    '<td style="' + tdS + 'text-align:center;width:40px;font-weight:bold;color:#194b3f;">' +
+    (fiscalSel.includes(cod) ? '&#10003;' : '') + '</td></tr>'
+  ).join('');
+
+  const contactoAreas = ['Tesorería','Cuentas por pagar','Director Financiero','Comercial'];
+  const contactoRows  = contactoAreas.map((area,i) => {
+    const c = (data.contactos||[]).find(x=>x.area===area)||{};
+    return '<tr' + (i%2===1 ? ' style="'+evenRow+'"' : '') + '>' +
+      '<td style="' + tdS + '">' + _escHtml_(area)         + '</td>' +
+      '<td style="' + tdS + '">' + _escHtml_(c.nombre||'') + '</td>' +
+      '<td style="' + tdS + '">' + _escHtml_(c.tel||'')    + '</td>' +
+      '<td style="' + tdS + '">' + _escHtml_(c.email||'')  + '</td></tr>';
+  }).join('');
+
+  // Generación de tabla de centros adaptable (1 columna para <=4 centros, 2 columnas para 5 o más)
+  const listaCentros = centros || [];
+  let centroTableHtml = '';
+
+  if (listaCentros.length <= 4) {
+    const centroRows = listaCentros.map((h, i) =>
+      '<tr' + (i % 2 === 1 ? ' style="' + evenRow + '"' : '') + '>' +
+      '<td style="' + tdS + 'width:22px;text-align:center;">' + (i + 1) + '.</td>' +
+      '<td style="' + tdS + '">' + _escHtml_((h.razon || h.nombre || h.codigo || '').toUpperCase()) + '</td>' +
+      '<td style="' + tdS + 'width:110px;text-align:right;">' + _escHtml_(h.nit || '') + '</td>' +
+      '<td style="' + tdS + 'width:28px;text-align:center;font-weight:bold;color:#194b3f;">&#10003;</td></tr>'
+    ).join('');
+
+    centroTableHtml =
+      '<table style="width:100%;border-collapse:collapse;"><thead><tr>' +
+      '<th style="width:24px;' + thStyle + '"></th>' +
+      '<th style="' + thStyle + '">RAZÓN SOCIAL / NOMBRE</th>' +
+      '<th style="width:115px;text-align:right;' + thStyle + '">NIT</th>' +
+      '<th style="width:30px;text-align:center;' + thStyle + '">&#10003;</th>' +
+      '</tr></thead><tbody>' + centroRows + '</tbody></table>';
+  } else {
+    const mid = Math.ceil(listaCentros.length / 2);
+    const col1 = listaCentros.slice(0, mid);
+    const col2 = listaCentros.slice(mid);
+
+    const tdCompact = 'border:1px solid #d8ebe7;padding:2.5px 5px;font-size:7.5pt;font-family:Calibri,Arial,sans-serif;';
+    const thCompact = 'background:#3c796c;color:#fff;font-size:7.5pt;padding:4px 6px;border:none;text-align:left;font-family:Calibri,Arial,sans-serif;';
+
+    const renderColTable = (items, startIdx) =>
+      '<table style="width:100%;border-collapse:collapse;"><thead><tr>' +
+      '<th style="width:18px;' + thCompact + '">#</th>' +
+      '<th style="' + thCompact + '">CENTRO</th>' +
+      '<th style="width:75px;text-align:right;' + thCompact + '">NIT</th>' +
+      '<th style="width:20px;text-align:center;' + thCompact + '">&#10003;</th>' +
+      '</tr></thead><tbody>' +
+      items.map((h, idx) =>
+        '<tr' + (idx % 2 === 1 ? ' style="' + evenRow + '"' : '') + '>' +
+        '<td style="' + tdCompact + 'text-align:center;">' + (startIdx + idx + 1) + '</td>' +
+        '<td style="' + tdCompact + 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:185px;">' + _escHtml_((h.nombre || h.razon || h.codigo || '').toUpperCase()) + '</td>' +
+        '<td style="' + tdCompact + 'text-align:right;">' + _escHtml_(h.nit || '') + '</td>' +
+        '<td style="' + tdCompact + 'text-align:center;font-weight:bold;color:#194b3f;">&#10003;</td></tr>'
+      ).join('') +
+      '</tbody></table>';
+
+    centroTableHtml =
+      '<table style="width:100%;border-collapse:collapse;table-layout:fixed;"><tr>' +
+      '<td style="width:50%;vertical-align:top;padding-right:4px;">' + renderColTable(col1, 0) + '</td>' +
+      '<td style="width:50%;vertical-align:top;padding-left:4px;">' + renderColTable(col2, mid) + '</td>' +
+      '</tr></table>';
+  }
+
+  const pgStyle      = 'width:816px;height:1056px;position:relative;overflow:hidden;background:#fff;' +
+    'font-family:Calibri,Arial,sans-serif;font-size:9pt;color:#1a1a1a;-webkit-print-color-adjust:exact;print-color-adjust:exact;';
+  const contentStyle = 'padding:14px 42px 75px 42px;';
+
+  const secCentros =
+    '<p style="font-size:8.5pt;margin-bottom:6px;font-family:Calibri,Arial,sans-serif;line-height:1.4;">Indique a continuación el Centro con el que se desea adquirir el crédito:</p>' +
+    centroTableHtml +
+    '<div style="background:#fff3e6;border:2px solid #0e362f;padding:5px 10px;margin:8px 0 2px;font-size:7pt;' +
+    'font-weight:bold;text-align:center;color:#0e362f;font-family:Calibri,Arial,sans-serif;line-height:1.4;">' +
+    'NOTA: LA FACTURA SERÁ EMITIDA DIRECTAMENTE POR LA RAZÓN SOCIAL DEL CENTRO QUE REALICE LA PRESTACIÓN DEL SERVICIO</div>';
+
+  const secTipo =
+    sHdr('TIPO DE SOLICITUD') +
+    '<table style="width:100%;border-collapse:collapse;"><tr>' +
+    tdPair('Tipo solicitud', tipoLabel) + tdPair('Fecha diligenciamiento', data.fecha_diligenciamiento) + '</tr><tr>' +
+    '<td style="border:1px solid #d8ebe7;padding:4px 8px;font-size:8.5pt;color:#194b3f;font-weight:bold;width:22%;background:#e8f0ee;font-family:Calibri,Arial,sans-serif;">Ejecutivo de cuenta</td>' +
+    '<td colspan="3" style="border:1px solid #d8ebe7;padding:4px 8px;font-size:8.5pt;color:#1a1a1a;font-family:Calibri,Arial,sans-serif;">' + _escHtml_(data.ejecutivo_cuenta) + '</td>' +
+    '</tr></table>';
+
+  const secBasica =
+    sHdr('INFORMACIÓN BÁSICA') +
+    '<table style="width:100%;border-collapse:collapse;">' +
+    '<tr><td style="border:1px solid #d8ebe7;padding:4px 8px;font-size:8.5pt;color:#194b3f;font-weight:bold;width:22%;background:#e8f0ee;font-family:Calibri,Arial,sans-serif;">Razón Social</td>' +
+    '<td colspan="3" style="border:1px solid #d8ebe7;padding:4px 8px;font-size:8.5pt;font-family:Calibri,Arial,sans-serif;">' + _escHtml_(data.razon_social) + '</td></tr>' +
+    '<tr>' + tdPair('Nombre Comercial', data.nombre_comercial) + tdPair('NIT', data.identificacion)   + '</tr>' +
+    '<tr>' + tdPair('Dirección',        data.direccion)        + tdPair('Ciudad', data.ciudad)        + '</tr>' +
+    '<tr>' + tdPair('Departamento',     data.departamento)     + tdPair('Código Postal', data.cod_postal || '—') + '</tr>' +
+    '</table>';
+
+  const secRepLegal =
+    sHdr('REPRESENTANTE LEGAL') +
+    '<table style="width:100%;border-collapse:collapse;">' +
+    '<tr>' + tdPair('Nombre', data.nombre_rep_legal) + tdPair('Tipo de ID', data.tipo_id_rep)    + '</tr>' +
+    '<tr>' + tdPair('No. Identificación', data.num_id_rep) + tdPair('Cargo', data.cargo_rep)     + '</tr>' +
+    '<tr>' + tdPair('Teléfono', data.tel_rep) + tdPair('E-mail', data.correo_rep)                + '</tr>' +
+    '</table>';
+
+  const secContactos =
+    sHdr('PERSONAS DE CONTACTO') +
+    '<table style="width:100%;border-collapse:collapse;"><thead><tr>' +
+    '<th style="' + thStyle + '">ÁREA</th><th style="' + thStyle + '">NOMBRE</th>' +
+    '<th style="' + thStyle + '">TELÉFONO</th><th style="' + thStyle + '">E-MAIL</th>' +
+    '</tr></thead><tbody>' + contactoRows + '</tbody></table>';
+
+  const secFiscal =
+    sHdr('RESPONSABILIDAD FISCAL') +
+    '<table style="width:100%;border-collapse:collapse;margin-top:2px;"><thead><tr>' +
+    '<th style="width:60px;' + thStyle + '">CÓDIGO</th>' +
+    '<th style="' + thStyle + '">SIGNIFICADO</th>' +
+    '<th style="width:40px;text-align:center;' + thStyle + '">&#10003;</th>' +
+    '</tr></thead><tbody>' + fiscalRows + '</tbody></table>';
+
+  const secFacturacion =
+    sHdr('INFORMACIÓN DE FACTURACIÓN') +
+    '<table style="width:100%;border-collapse:collapse;margin-top:2px;">' +
+    '<tr>' + tdPair('Fecha corte radicación', data.fact_fecha_corte) + tdPair('Inscripción proveedores', data.fact_inscripcion) + '</tr>' +
+    '<tr>' + tdPair('Docs. radicación facturas', data.fact_docs_req) + tdPair('E-mail facturación', data.fact_email)            + '</tr>' +
+    '<tr>' + tdPair('E-mail CC', data.fact_email_cc||'—') +
+    '<td style="border:1px solid #d8ebe7;padding:3px 6px;width:22%;background:#e8f0ee;font-family:Calibri,Arial,sans-serif;"></td>' +
+    '<td style="border:1px solid #d8ebe7;padding:3px 6px;width:28%;font-family:Calibri,Arial,sans-serif;"></td></tr>' +
+    '</table>';
+
+  const secCondiciones =
+    sHdr('CONDICIONES DE LA SOLICITUD DE CRÉDITO') +
+    '<div style="font-size:8pt;color:#1a1a1a;text-align:justify;border:1px solid #0e362f;border-left:4px solid #d08b43;' +
+    'padding:10px 12px;background:#f9fcfb;line-height:1.5;font-family:Calibri,Arial,sans-serif;">' +
+    'Por este medio autorizo y ordeno que los centros anteriores y/o CupoFlow S.A.S. hagan una investigación de la situación financiera ' +
+    'y crediticia de la empresa incluyendo una investigación acerca de las referencias proporcionadas en este documento. Estoy facultado ' +
+    'para exigir a la empresa que solicita el crédito a efectuar el pago de todos los gastos incurridos en el (los) centro(es). Declaro y ' +
+    'acepto que el incumplimiento de pagos de la empresa a la que represento generará intereses de mora de acuerdo al valor máximo ' +
+    'establecido por ley, sin necesidad de requerimientos judiciales o extrajudiciales.' +
+    '</div>';
+
+  const secHabeas =
+    sHdr('AUTORIZACIÓN PARA TRATAMIENTO DE DATOS Y CONSULTA ANTE CENTRALES DE RIESGO') +
+    '<div style="font-size:8pt;color:#1a1a1a;text-align:justify;border:1px solid #0e362f;border-left:4px solid #d08b43;' +
+    'padding:10px 12px;background:#f9fcfb;line-height:1.5;font-family:Calibri,Arial,sans-serif;">' +
+    'El abajo firmante, actuando en calidad de Representante Legal, autoriza de manera expresa a CupoFlow S.A.S. y sus sociedades ' +
+    'vinculadas para: (a) consultar en centrales de riesgo crediticio (Ley 1266/2008, Ley 2157/2021) la información relevante para ' +
+    'valorar el riesgo crediticio; (b) reportar y divulgar ante centrales de riesgo el comportamiento crediticio; (c) realizar gestión ' +
+    'de conocimiento del cliente; (d) adelantar gestión de cobranza en caso de mora. El tratamiento de datos está sujeto a la Ley 1581 ' +
+    'de 2012 y las políticas publicadas en <strong>www.example.com</strong>.' +
+    '</div>';
+
+  const secValidacionOtp =
+    sHdr('VERIFICACIÓN ELECTRÓNICA Y FIRMA DIGITAL') +
+    '<table style="width:100%;border-collapse:collapse;">' +
+    '<tr><td colspan="4" style="padding:14px 16px;border:1px solid #d8ebe7;text-align:center;background:#fafcfc;">' +
+    '<span style="color:#0e362f;font-weight:bold;font-size:10pt;font-family:Calibri,Arial,sans-serif;">SOLICITUD VALIDADA MEDIANTE CÓDIGO OTP (Email)</span><br>' +
+    '<span style="color:#555;font-size:8.5pt;margin-top:6px;display:block;font-family:Calibri,Arial,sans-serif;line-height:1.5;">' +
+    'Esta solicitud fue confirmada electrónicamente por el representante legal <strong>' + _escHtml_(data.nombre_rep_legal) + '</strong>' +
+    ' a través del correo <strong>' + _escHtml_(data.correo_rep) + '</strong>.' +
+    '</span></td></tr>' +
+    '<tr>' + tdPair('Código de solicitud', data.codigo_solicitud) + tdPair('Fecha de envío', data.fecha_diligenciamiento) + '</tr>' +
+    '<tr>' + tdPair('IP del dispositivo', data.ip_dispositivo || '—') + tdPair('Estado de firma', 'CONFIRMADA VÍA OTP') + '</tr>' +
+    '</table>' +
+    '<div style="font-size:8pt;color:#0e362f;margin-top:16px;text-align:center;border-top:1px solid #d08b43;' +
+    'padding-top:6px;font-weight:bold;font-family:Calibri,Arial,sans-serif;">' +
+    'Código de solicitud: <strong>' + _escHtml_(data.codigo_solicitud) + '</strong>' +
+    ' &nbsp;&middot;&nbsp; Generado automáticamente por el sistema CupoFlow</div>';
+
+  function wrapPage(content, pageNum, totalPages) {
+    return '<div class="page" style="' + pgStyle + '">' + headerHtml +
+      '<div style="' + contentStyle + '">' + content + '</div>' +
+      buildFooterHtml(pageNum, totalPages) + '</div>';
+  }
+
+  // Si son 4 o menos centros, cabe holgadamente en 2 páginas sin dejar espacios vacíos.
+  // Si son 5 o más centros (o todos los 28 del grupo), se distribuye en 3 páginas limpias.
+  const esModo2Paginas = listaCentros.length <= 4;
+  const pages = esModo2Paginas
+    ? [
+        wrapPage(secCentros + secTipo + secBasica + secRepLegal + secContactos, 1, 2),
+        wrapPage(secFiscal + secFacturacion + secCondiciones + secHabeas + secValidacionOtp, 2, 2)
+      ]
+    : [
+        wrapPage(secCentros + secTipo + secBasica, 1, 3),
+        wrapPage(secRepLegal + secContactos + secFiscal + secFacturacion, 2, 3),
+        wrapPage(secCondiciones + secHabeas + secValidacionOtp, 3, 3)
+      ];
+
+  const css = '* { margin:0; padding:0; box-sizing:border-box; } html, body { width:816px; height:1056px; overflow:hidden; background:#fff; }';
+  return { pages: pages, css: css };
+}
+
+/* ── Render de una página con html2canvas ──────────────────────────────── */
+function renderPdfPage(pageHtml, css) {
+  return new Promise(function(res, rej) {
+    var iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:fixed;top:0;left:0;width:816px;height:1056px;border:none;z-index:9999;pointer-events:none;';
+    var fullHtml = '<!DOCTYPE html><html><head><meta charset="utf-8"><style>' + css + '</style></head><body>' + pageHtml + '</body></html>';
+    iframe.setAttribute('srcdoc', fullHtml);
+    document.body.appendChild(iframe);
+    iframe.onload = function() {
+      setTimeout(function() {
+        var pageEl = iframe.contentDocument.querySelector('.page') || iframe.contentDocument.body;
+        html2canvas(pageEl, {
+          scale: 3, useCORS: true, logging: false,
+          windowWidth: 816, windowHeight: 1056, scrollX: 0, scrollY: 0
+        }).then(function(canvas) {
+          document.body.removeChild(iframe);
+          res(canvas);
+        }).catch(function(e) {
+          if (iframe.parentNode) document.body.removeChild(iframe);
+          rej(e);
+        });
+      }, 300);
+    };
+  });
+}
+
+/* ── Flujo principal ───────────────────────────────────────────────────── */
+async function runTest() {
+  const btn    = document.getElementById('btn');
+  const status = document.getElementById('status');
+  const barWrap = document.getElementById('barWrap');
+  const bar     = document.getElementById('bar');
+
+  btn.disabled       = true;
+  status.className   = '';
+  barWrap.style.display = 'block';
+  bar.style.width    = '5%';
+
+  function setStatus(msg, pct) {
+    status.textContent = msg;
+    bar.style.width    = pct + '%';
+  }
+
+  try {
+    setStatus('Cargando logo…', 8);
+    let logoB64 = null;
+    try {
+      const logoRes = await new Promise(function(res, rej) {
+        google.script.run.withSuccessHandler(res).withFailureHandler(rej).apiGetLogoBase64();
+      });
+      if (logoRes && logoRes.ok) logoB64 = logoRes.b64;
+    } catch(e) { /* text fallback */ }
+
+    setStatus('Construyendo páginas HTML…', 14);
+    const { pages, css } = _buildFormularioPdfHtml_(MOCK_DATA, MOCK_CENTROS, logoB64);
+    const canvases = [];
+
+    for (var i = 0; i < pages.length; i++) {
+      setStatus('Renderizando página ' + (i + 1) + ' de ' + pages.length + ' con html2canvas…', 20 + i * 30);
+      canvases.push(await renderPdfPage(pages[i], css));
+    }
+
+    setStatus('Ensamblando PDF con jsPDF…', 80);
+    const jsPDFCtor = window.jspdf && window.jspdf.jsPDF;
+    if (!jsPDFCtor) throw new Error('jsPDF no cargó. Revisa la consola.');
+
+    const doc = new jsPDFCtor({ unit:'pt', format:'letter', orientation:'portrait' });
+    canvases.forEach(function(canvas, idx) {
+      if (idx > 0) doc.addPage();
+      doc.addImage(canvas.toDataURL('image/jpeg', 0.97), 'JPEG', 0, 0, 612, 792);
+    });
+
+    const buffer = doc.output('arraybuffer');
+    const bytes  = new Uint8Array(buffer);
+    var binary   = '';
+    for (var j = 0; j < bytes.byteLength; j++) binary += String.fromCharCode(bytes[j]);
+    const pdfBase64 = btoa(binary);
+
+    setStatus('Enviando al servidor…', 90);
+    await new Promise(function(resolve, reject) {
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(reject)
+        .apiTestEnviarPdfClienteSide(pdfBase64);
+    });
+
+    bar.style.width  = '100%';
+    status.className = 'ok';
+    status.textContent = '✓ PDF enviado a soporte-ti@example.com';
+    btn.disabled = false;
+
+  } catch(e) {
+    bar.style.width    = '100%';
+    bar.style.background = '#e74c3c';
+    status.className   = 'err';
+    status.textContent = '✗ ' + (e.message || String(e));
+    btn.disabled = false;
+  }
+}
+</script>
+</body>
+</html>

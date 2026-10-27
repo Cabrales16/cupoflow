@@ -1,0 +1,11 @@
+import { launch } from './helper.mjs';
+import assert from 'node:assert/strict';
+const t = await launch();
+const p = await t.newPage();
+await p.goto(t.base);
+await p.waitForTimeout(800);
+const hrefs = await p.$$eval('a.tool-card', as => as.map(a => a.getAttribute('href')));
+console.log('tarjetas:', hrefs);
+assert.ok(hrefs.every(h => h && h !== '#'), 'las tarjetas deben apuntar a las apps');
+console.log('problemas:', t.problems);
+await t.close();
